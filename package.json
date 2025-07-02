@@ -1,0 +1,48 @@
+{
+  "name": "acorn-pups-infra-iot",
+  "version": "1.0.0",
+  "description": "AWS CDK Infrastructure for Acorn Pups IoT Core components and device management",
+  "bin": {
+    "acorn-pups-infra-iot": "bin/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "deploy:dev": "cdk deploy --all --context environment=dev",
+    "deploy:prod": "cdk deploy --all --context environment=prod",
+    "destroy:dev": "cdk destroy --all --context environment=dev",
+    "destroy:prod": "cdk destroy --all --context environment=prod",
+    "diff:dev": "cdk diff --context environment=dev",
+    "diff:prod": "cdk diff --context environment=prod"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^22.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "~5.0.0"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.100.0",
+    "constructs": "^10.3.0",
+    "@aws-sdk/client-ssm": "^3.400.0"
+  },
+  "keywords": [
+    "aws",
+    "cdk",
+    "iot-core",
+    "iot",
+    "device-management",
+    "acorn-pups"
+  ],
+  "author": "Acorn Pups Team",
+  "license": "MIT"
+} 
