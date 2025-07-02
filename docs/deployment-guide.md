@@ -167,7 +167,7 @@ aws ssm get-parameter --name "/acorn-pups/dev/iot-core/thing-type/arn"
 ### 3. Test IoT Rules
 ```powershell
 # Test button press rule
-aws iot publish --topic "acorn-pups/button-press/test-device" --payload '{"deviceId": "test-device", "timestamp": "2024-01-01T12:00:00Z", "batteryLevel": 85}'
+aws iot publish --topic "acorn-pups/button-press/test-device" --payload '{"deviceId": "test-device", "timestamp": "2024-01-01T12:00:00Z"}'
 
 # Test status update rule  
 aws iot publish --topic "acorn-pups/status/test-device" --payload '{"deviceId": "test-device", "status": "online", "firmwareVersion": "1.0.0"}'
@@ -247,8 +247,7 @@ aws logs describe-log-streams --log-group-name "/aws/iot/rules/AcornPupsButtonPr
 ### CloudWatch Alarms
 - **High Error Rate**: >5% rule execution failures
 - **Device Connectivity**: >10 failed connections in 5 minutes  
-- **No Heartbeat**: Missing heartbeat for 15+ minutes
-- **Low Battery**: Device battery <20%
+
 
 ### Regular Maintenance Tasks
 1. **Monthly**: Review CloudWatch metrics and logs

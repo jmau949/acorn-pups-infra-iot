@@ -27,7 +27,6 @@ The infrastructure is organized into the following stacks:
 - **Device Status Rule**: Routes `acorn-pups/status/+` to `updateDeviceStatus` Lambda  
 - **Device Reset Rule**: Routes `acorn-pups/commands/+/reset` to `resetDevice` Lambda
 - **Shadow Update Rule**: Routes device shadow updates for offline state management
-- **Heartbeat Rule**: Routes device heartbeat for connectivity monitoring
 - Error actions configured for CloudWatch Logs integration
 
 ### 4. **Certificate Management Stack** (`CertificateManagementStack`)
@@ -38,8 +37,8 @@ The infrastructure is organized into the following stacks:
 
 ### 5. **Monitoring Stack** (`MonitoringStack`)
 - CloudWatch Dashboard with device connectivity, message processing, and rule execution metrics
-- CloudWatch Alarms for high error rates, connectivity issues, and low battery
-- Custom metrics for device heartbeat and button press monitoring
+- CloudWatch Alarms for high error rates, connectivity issues
+
 - Comprehensive monitoring for all IoT components
 
 ## Prerequisites
@@ -166,7 +165,7 @@ The infrastructure supports the following MQTT topic patterns:
 | `acorn-pups/status/{deviceId}` | Device → Cloud | Device status updates |
 | `acorn-pups/settings/{deviceId}` | Cloud → Device | Device configuration |
 | `acorn-pups/commands/{deviceId}` | Cloud → Device | Device commands |
-| `acorn-pups/heartbeat/{deviceId}` | Device → Cloud | Connectivity monitoring |
+
 
 ## Device Registration Flow
 
@@ -182,13 +181,11 @@ The infrastructure supports the following MQTT topic patterns:
 - **Device Connectivity**: Connection success/failure rates
 - **Message Processing**: MQTT message throughput
 - **Rule Execution**: IoT Rule processing metrics
-- **Custom Metrics**: Device heartbeat and button press tracking
+
 
 ### CloudWatch Alarms
 - **High Error Rate**: >5% rule execution failures
 - **Device Connectivity**: >10 failed connections in 5 minutes
-- **No Heartbeat**: Missing device heartbeat for 15 minutes
-- **Low Battery**: Device battery <20%
 
 ## Security Considerations
 

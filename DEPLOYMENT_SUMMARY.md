@@ -22,7 +22,7 @@ This AWS CDK TypeScript repository provides complete infrastructure for the Acor
 - ✅ Device Status Rule → `updateDeviceStatus` Lambda
 - ✅ Device Reset Rule → `resetDevice` Lambda
 - ✅ Shadow Update Rule for offline state management
-- ✅ Heartbeat Rule for connectivity monitoring
+
 - ✅ CloudWatch Logs error handling
 
 ### 4. **Certificate Management Stack** (`lib/certificate-management-stack.ts`)
@@ -34,7 +34,6 @@ This AWS CDK TypeScript repository provides complete infrastructure for the Acor
 ### 5. **Monitoring Stack** (`lib/monitoring-stack.ts`)
 - ✅ CloudWatch Dashboard with IoT metrics
 - ✅ CloudWatch Alarms for error monitoring
-- ✅ Device connectivity and battery monitoring
 - ✅ Custom metrics for device activity
 
 ### 6. **Parameter Store Helper** (`lib/parameter-store-helper.ts`)
@@ -91,7 +90,7 @@ acorn-pups-infra-iot/
 | `acorn-pups/status/{deviceId}` | Device → Cloud | Device status updates | DeviceStatusRule |
 | `acorn-pups/settings/{deviceId}` | Cloud → Device | Configuration updates | N/A |
 | `acorn-pups/commands/{deviceId}` | Cloud → Device | Device commands | DeviceResetRule |
-| `acorn-pups/heartbeat/{deviceId}` | Device → Cloud | Connectivity monitoring | HeartbeatRule |
+
 
 ## 📊 Parameter Store Integration
 
@@ -192,8 +191,6 @@ cdk deploy acorn-pups-iot-dev-thing-types --context environment=dev
 ### CloudWatch Alarms
 - High error rate (>5%)
 - Device connectivity issues (>10 failures/5min)
-- Missing heartbeat (15+ minutes)
-- Low battery levels (<20%)
 
 ## 🧪 Testing
 
