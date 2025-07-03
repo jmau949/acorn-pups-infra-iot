@@ -30,10 +30,12 @@ The infrastructure is organized into the following stacks:
 - Error actions configured for CloudWatch Logs integration
 
 ### 4. **Certificate Management Stack** (`CertificateManagementStack`)
-- S3 bucket for storing certificates and CA materials
-- CA certificate management (placeholder for manual setup in production)
-- Certificate templates for device registration
-- Security configurations for device certificates
+- **AWS IoT Core Managed Certificates**: Uses AWS IoT Core's built-in certificate generation
+- **S3 Bucket**: Secure storage for device certificates and metadata
+- **Amazon Root CA**: Provides Amazon Root CA 1 information for device configuration
+- **Certificate Configuration**: Automated certificate generation using AWS CLI/SDK
+- **IoT Endpoints**: AWS IoT Core endpoints for device connections
+- **No CA Management**: Eliminates the overhead of managing custom Certificate Authority
 
 ### 5. **Monitoring Stack** (`MonitoringStack`)
 - CloudWatch Dashboard with device connectivity, message processing, and rule execution metrics
@@ -138,13 +140,14 @@ All stack outputs are automatically stored in AWS Systems Manager Parameter Stor
 - `/acorn-pups/{environment}/iot-core/rule-topics`
 
 ### Certificate Parameters
-- `/acorn-pups/{environment}/iot-core/ca-certificate/arn`
 - `/acorn-pups/{environment}/iot-core/certificate-bucket/name`
-- `/acorn-pups/{environment}/iot-core/certificate-template/template`
+- `/acorn-pups/{environment}/iot-core/certificate-type` (AWS_MANAGED)
+- `/acorn-pups/{environment}/iot-core/certificate-config`
+- `/acorn-pups/{environment}/iot-core/amazon-root-ca`
 
 ### IoT Core Endpoints
-- `/acorn-pups/{environment}/iot-core/endpoint-url`
-- `/acorn-pups/{environment}/iot-core/data-endpoint-url`
+- `/acorn-pups/{environment}/iot-core/endpoint`
+- `/acorn-pups/{environment}/iot-core/data-endpoint`
 
 ## Integration with Lambda Functions
 
@@ -169,11 +172,24 @@ The infrastructure supports the following MQTT topic patterns:
 
 ## Device Registration Flow
 
-1. **Device Setup**: ESP32 enters configuration mode
-2. **Certificate Generation**: Lambda creates device certificate using CA
-3. **Thing Creation**: Device registered as IoT Thing with policy attachment
-4. **Parameter Storage**: Device information stored in Parameter Store
-5. **MQTT Connection**: Device connects using certificate and client ID pattern
+1. **Certificate Generation**: Create AWS IoT Core managed certificates
+   ```bash
+   aws iot create-keys-and-certificate --set-as-active
+   ```
+2. **Thing Creation**: Register device as IoT Thing with attributes
+   ```bash
+   aws iot create-thing --thing-name <deviceId> --thing-type-name AcornPupsDevice-dev
+   ```
+3. **Policy Attachment**: Attach device policy to certificate
+   ```bash
+   aws iot attach-policy --policy-name AcornPupsDevicePolicy-dev --target <certificateArn>
+   ```
+4. **Principal Attachment**: Attach certificate to Thing
+   ```bash
+   aws iot attach-thing-principal --thing-name <deviceId> --principal <certificateArn>
+   ```
+5. **Device Configuration**: Configure device with certificates and Amazon Root CA
+6. **MQTT Connection**: Device connects using certificate and client ID pattern
 
 ## Monitoring and Observability
 
@@ -190,10 +206,11 @@ The infrastructure supports the following MQTT topic patterns:
 ## Security Considerations
 
 ### Device Security
-- Unique X.509 certificates per device
+- AWS IoT Core managed X.509 certificates per device
 - Device-specific topic access only
 - Client ID pattern enforcement: `acorn-esp32-*`
 - Thing attachment requirement for connections
+- Amazon Root CA 1 for certificate validation
 
 ### Network Security
 - MQTT over TLS 1.2
@@ -232,8 +249,8 @@ npm run watch
    - Verify Parameter Store paths match expected format
 
 2. **Certificate Management Errors**
-   - Manual CA certificate setup required for production
-   - Verify S3 bucket permissions
+   - Use AWS IoT Core managed certificates
+   - Verify S3 bucket permissions for certificate storage
 
 3. **IoT Rule Failures**
    - Check CloudWatch Logs for error details

@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+import 'source-map-support/register';
+import * as cdk from 'aws-cdk-lib';
+import { IotThingTypeStack } from '../lib/iot-thing-type-stack';
+import { IotPolicyStack } from '../lib/iot-policy-stack';
+import { IotRulesStack } from '../lib/iot-rules-stack';
+import { CertificateManagementStack } from '../lib/certificate-management-stack';
+import { MonitoringStack } from '../lib/monitoring-stack';
+
+const app = new cdk.App();
+
+// Get environment from context (dev or prod)
+const environment = app.node.tryGetContext('environment') || 'dev';
+const account = process.env.CDK_DEFAULT_ACCOUNT;
+const region = process.env.CDK_DEFAULT_REGION || 'us-east-1';
+
+console.log(`Deploying IoT infrastructure to environment: ${environment}`);
+
+const env = {
+  account,
+  region,
+};
+
+// Environment-specific configuration
+const config = {
+  dev: {
+    logLevel: 'DEBUG',
+    enableDetailedMonitoring: true,
+    certificateExpirationDays: 365,
+    ruleErrorDestination: 'cloudwatch',
+  },
+  prod: {
+    logLevel: 'INFO',
+    enableDetailedMonitoring: true,
+    certificateExpirationDays: 3652,
+    ruleErrorDestination: 'cloudwatch',
+  }
+};
+
+const envConfig = config[environment as keyof typeof config];
+if (!envConfig) {
+  throw new Error(`Invalid environment: ${environment}. Must be 'dev' or 'prod'`);
+}
+
+// Stack naming convention
+const stackPrefix = `acorn-pups-iot-${environment}`;
+
+// Certificate Management Stack (must be first, as others depend on it)
+const certificateStack = new CertificateManagementStack(app, `${stackPrefix}-certificates`, {
+  env,
+  environment,
+  ...envConfig,
+});
+
+// IoT Thing Type Stack
+const thingTypeStack = new IotThingTypeStack(app, `${stackPrefix}-thing-types`, {
+  env,
+  environment,
+  ...envConfig,
+});
+
+// IoT Policy Stack (depends on Thing Type)
+const policyStack = new IotPolicyStack(app, `${stackPrefix}-policies`, {
+  env,
+  environment,
+  thingTypeName: thingTypeStack.acornPupsDeviceThingType.thingTypeName!,
+  ...envConfig,
+});
+
+// IoT Rules Stack (depends on Policy and Certificate stacks for ARNs)
+const rulesStack = new IotRulesStack(app, `${stackPrefix}-rules`, {
+  env,
+  environment,
+  roleArn: policyStack.iotRuleExecutionRole.roleArn,
+  ...envConfig,
+});
+
+// Monitoring Stack (monitors all IoT components)
+const monitoringStack = new MonitoringStack(app, `${stackPrefix}-monitoring`, {
+  env,
+  environment,
+  thingTypeName: thingTypeStack.acornPupsDeviceThingType.thingTypeName!,
+  iotRules: rulesStack.rules,
+  ...envConfig,
+});
+
+// Add dependencies to ensure proper deployment order
+policyStack.addDependency(thingTypeStack);
+rulesStack.addDependency(policyStack);
+rulesStack.addDependency(certificateStack);
+monitoringStack.addDependency(thingTypeStack);
+monitoringStack.addDependency(rulesStack);
+
+// Tags for all resources
+cdk.Tags.of(app).add('Project', 'acorn-pups');
+cdk.Tags.of(app).add('Environment', environment);
+cdk.Tags.of(app).add('Service', 'IoT-Core');
+cdk.Tags.of(app).add('ManagedBy', 'CDK'); 

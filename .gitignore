@@ -256,8 +256,6 @@ Thumbs.db
 !jest.config.js
 
 # Build output
-lib/
-bin/
 
 # AWS SAM
 .aws-sam/

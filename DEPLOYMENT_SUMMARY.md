@@ -240,6 +240,31 @@ aws iot publish --topic "acorn-pups/button-press/test-device" --payload '{"test"
 6. **Set up ESP32 devices** with generated certificates
 7. **Monitor device activity** through CloudWatch dashboard
 
+## 🔐 Certificate Management
+
+### AWS IoT Core Managed Certificates
+- ✅ **AWS-Managed Certificates**: Uses AWS IoT Core's built-in certificate generation
+- ✅ **S3 Certificate Storage**: Secure bucket for device certificates and metadata
+- ✅ **Amazon Root CA**: Provides Root CA 1 information for device configuration
+- ✅ **Certificate Configuration**: Automated setup using AWS CLI/SDK commands
+- ✅ **IoT Endpoints**: AWS IoT Core endpoints for device connections
+- ✅ **Simplified Management**: No custom CA overhead or maintenance
+
+### Certificate Generation Commands
+```bash
+# Create device certificate
+aws iot create-keys-and-certificate --set-as-active
+
+# Create IoT Thing
+aws iot create-thing --thing-name <deviceId> --thing-type-name AcornPupsDevice-dev
+
+# Attach policy to certificate
+aws iot attach-policy --policy-name AcornPupsDevicePolicy-dev --target <certificateArn>
+
+# Attach certificate to Thing
+aws iot attach-thing-principal --thing-name <deviceId> --principal <certificateArn>
+```
+
 ---
 
 *This infrastructure provides a complete, production-ready IoT platform for the Acorn Pups dog communication system with comprehensive monitoring, security, and integration capabilities.* 

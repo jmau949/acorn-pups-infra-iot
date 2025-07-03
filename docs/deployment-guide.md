@@ -312,3 +312,61 @@ aws iot test-invoke-authorizer --authorizer-name your-authorizer --token your-to
 ---
 
 *This deployment guide provides comprehensive instructions for deploying and managing the Acorn Pups IoT infrastructure. Always test in development before deploying to production.* 
+
+## Certificate Management
+
+### AWS IoT Core Managed Certificates
+
+The infrastructure uses AWS IoT Core's built-in certificate generation, which is simpler and more reliable than managing custom Certificate Authorities.
+
+#### Certificate Generation Process
+
+1. **Create Device Certificate**:
+   ```bash
+   aws iot create-keys-and-certificate --set-as-active --output json > device-cert.json
+   ```
+
+2. **Extract Certificate Information**:
+   ```bash
+   # Get certificate ARN
+   CERT_ARN=$(jq -r '.certificateArn' device-cert.json)
+   
+   # Get certificate ID
+   CERT_ID=$(jq -r '.certificateId' device-cert.json)
+   
+   # Save certificate and keys
+   jq -r '.certificatePem' device-cert.json > device-cert.pem
+   jq -r '.keyPair.PrivateKey' device-cert.json > device-private-key.pem
+   jq -r '.keyPair.PublicKey' device-cert.json > device-public-key.pem
+   ```
+
+3. **Download Amazon Root CA**:
+   ```bash
+   curl https://www.amazontrust.com/repository/AmazonRootCA1.pem -o AmazonRootCA1.pem
+   ```
+
+4. **Create and Configure IoT Thing**:
+   ```bash
+   # Create IoT Thing
+   aws iot create-thing --thing-name "acorn-esp32-device-001" --thing-type-name "AcornPupsDevice-dev"
+   
+   # Attach policy to certificate
+   aws iot attach-policy --policy-name "AcornPupsDevicePolicy-dev" --target "$CERT_ARN"
+   
+   # Attach certificate to Thing
+   aws iot attach-thing-principal --thing-name "acorn-esp32-device-001" --principal "$CERT_ARN"
+   ```
+
+#### Device Configuration
+
+Configure your ESP32 device with:
+- **Device Certificate**: `device-cert.pem`
+- **Private Key**: `device-private-key.pem` (keep secure!)
+- **Root CA**: `AmazonRootCA1.pem`
+- **IoT Endpoint**: Retrieved from Parameter Store or CloudFormation outputs
+
+#### Certificate Storage
+
+- Certificates are stored in the S3 bucket: `acorn-pups-certificates-{environment}-{account-id}`
+- The bucket has versioning enabled and lifecycle policies for cleanup
+- All certificate metadata is stored in Parameter Store for easy access 
