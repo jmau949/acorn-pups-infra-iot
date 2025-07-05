@@ -17,7 +17,7 @@ export class CertificateManagementStack extends cdk.Stack {
       stackName: 'certificates',
     });
 
-    // Create S3 bucket for storing certificates and device metadata
+    // Create S3 bucket for storing device metadata and backup certificates
     this.certificateBucket = new s3.Bucket(this, 'CertificateBucket', {
       bucketName: `acorn-pups-certificates-${props.environment}-${this.account}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
@@ -43,7 +43,7 @@ export class CertificateManagementStack extends cdk.Stack {
     this.parameterHelper.createParameter(
       'CertificateBucketNameParam',
       this.certificateBucket.bucketName,
-      'S3 bucket for storing device certificates and metadata',
+      'S3 bucket for storing device metadata and backup certificates',
       `/acorn-pups/${props.environment}/iot-core/certificate-bucket/name`
     );
 
@@ -55,8 +55,8 @@ export class CertificateManagementStack extends cdk.Stack {
     );
 
     // AWS IoT Core endpoint information
-    const iotEndpoint = `https://${cdk.Aws.ACCOUNT_ID}.iot.${cdk.Aws.REGION}.amazonaws.com`;
-    const iotDataEndpoint = `https://${cdk.Aws.ACCOUNT_ID}-ats.iot.${cdk.Aws.REGION}.amazonaws.com`;
+    const iotEndpoint = `${cdk.Aws.ACCOUNT_ID}.iot.${cdk.Aws.REGION}.amazonaws.com`;
+    const iotDataEndpoint = `${cdk.Aws.ACCOUNT_ID}-ats.iot.${cdk.Aws.REGION}.amazonaws.com`;
 
     this.parameterHelper.createParameter(
       'IoTEndpointParam',
@@ -68,56 +68,99 @@ export class CertificateManagementStack extends cdk.Stack {
     this.parameterHelper.createParameter(
       'IoTDataEndpointParam',
       iotDataEndpoint,
-      'AWS IoT Core data endpoint for device connections',
+      'AWS IoT Core data endpoint for ESP32 receiver connections',
       `/acorn-pups/${props.environment}/iot-core/data-endpoint`
     );
 
-    // Certificate configuration for AWS IoT Core built-in certificates
+    // AWS IoT Core managed certificate configuration
     this.parameterHelper.createParameter(
       'CertificateTypeParam',
       'AWS_MANAGED',
-      'Certificate type: AWS IoT Core managed certificates',
+      'Certificate type: AWS IoT Core managed certificates for ESP32 receivers',
       `/acorn-pups/${props.environment}/iot-core/certificate-type`
     );
 
     this.parameterHelper.createParameter(
       'CertificateExpirationDaysParam',
       props.certificateExpirationDays.toString(),
-      'Number of days before device certificates expire',
+      'Number of days before ESP32 receiver certificates expire',
       `/acorn-pups/${props.environment}/iot-core/certificate-expiration-days`
     );
 
-    // Device certificate configuration for AWS IoT Core
+    // ESP32 receiver certificate configuration for AWS IoT Core
     this.parameterHelper.createParameter(
-      'DeviceCertificateConfigParam',
+      'ReceiverCertificateConfigParam',
       JSON.stringify({
         type: 'AWS_MANAGED',
         autoActivate: true,
         attachPolicy: true,
-        policyName: `AcornPupsDevicePolicy-${props.environment}`,
-        thingTypeName: `AcornPupsDevice-${props.environment}`,
+        policyName: `AcornPupsReceiverPolicy-${props.environment}`,
+        thingTypeName: `AcornPupsReceiver-${props.environment}`,
         validityPeriod: props.certificateExpirationDays,
-        certificateStatus: 'ACTIVE'
+        certificateStatus: 'ACTIVE',
+        deviceType: 'ESP32_RECEIVER'
       }),
-      'Device certificate configuration for AWS IoT Core',
-      `/acorn-pups/${props.environment}/iot-core/certificate-config`
+      'ESP32 receiver certificate configuration for AWS IoT Core',
+      `/acorn-pups/${props.environment}/iot-core/receiver-certificate-config`
     );
 
-    // Instructions for certificate generation using AWS CLI/SDK
+    // Certificate generation workflow for ESP32 receivers
     this.parameterHelper.createParameter(
-      'CertificateGenerationInstructionsParam',
+      'CertificateGenerationWorkflowParam',
       JSON.stringify({
-        method: 'AWS_CLI',
-        commands: [
-          'aws iot create-keys-and-certificate --set-as-active',
-          'aws iot attach-policy --policy-name AcornPupsDevicePolicy-${environment} --target <certificateArn>',
-          'aws iot create-thing --thing-name <deviceId> --thing-type-name AcornPupsDevice-${environment}',
-          'aws iot attach-thing-principal --thing-name <deviceId> --principal <certificateArn>'
+        method: 'AWS_CLI_SDK',
+        description: 'Certificate generation workflow for ESP32 receivers during device registration',
+        steps: [
+          {
+            step: 1,
+            command: 'aws iot create-keys-and-certificate --set-as-active',
+            description: 'Generate AWS-managed X.509 certificate and private key'
+          },
+          {
+            step: 2,
+            command: 'aws iot create-thing --thing-name <deviceId> --thing-type-name AcornPupsReceiver-${environment}',
+            description: 'Create IoT Thing for ESP32 receiver'
+          },
+          {
+            step: 3,
+            command: 'aws iot attach-policy --policy-name AcornPupsReceiverPolicy-${environment} --target <certificateArn>',
+            description: 'Attach receiver policy to certificate'
+          },
+          {
+            step: 4,
+            command: 'aws iot attach-thing-principal --thing-name <deviceId> --principal <certificateArn>',
+            description: 'Attach certificate to Thing as principal'
+          }
         ],
         documentation: 'https://docs.aws.amazon.com/iot/latest/developerguide/create-device-certificate.html'
       }),
-      'Instructions for generating AWS IoT Core certificates',
-      `/acorn-pups/${props.environment}/iot-core/certificate-generation-instructions`
+      'Certificate generation workflow for ESP32 receivers',
+      `/acorn-pups/${props.environment}/iot-core/certificate-generation-workflow`
+    );
+
+    // Required certificate files for ESP32 receivers
+    this.parameterHelper.createParameter(
+      'ReceiverCertificateFilesParam',
+      JSON.stringify({
+        deviceCertificate: {
+          format: 'X.509 PEM',
+          description: 'Device-specific certificate generated by AWS IoT Core',
+          usage: 'Device authentication and authorization'
+        },
+        privateKey: {
+          format: 'RSA PEM',
+          description: 'Private key corresponding to device certificate',
+          usage: 'TLS handshake and message signing'
+        },
+        amazonRootCA: {
+          format: 'X.509 PEM',
+          description: 'Amazon Root CA 1 certificate',
+          url: 'https://www.amazontrust.com/repository/AmazonRootCA1.pem',
+          usage: 'TLS certificate validation'
+        }
+      }),
+      'Required certificate files for ESP32 receivers',
+      `/acorn-pups/${props.environment}/iot-core/receiver-certificate-files`
     );
 
     // Create CloudFormation outputs with Parameter Store integration
@@ -145,21 +188,36 @@ export class CertificateManagementStack extends cdk.Stack {
     this.parameterHelper.createOutputWithParameter(
       'IoTDataEndpointOutput',
       iotDataEndpoint,
-      'AWS IoT Core data endpoint',
+      'AWS IoT Core data endpoint for ESP32 receivers',
       `AcornPupsIoTDataEndpoint-${props.environment}`
     );
 
-    // Regional Amazon Root CA information
+    // Amazon Root CA information for ESP32 receivers
     this.parameterHelper.createParameter(
       'AmazonRootCAInfoParam',
       JSON.stringify({
         name: 'Amazon Root CA 1',
         url: 'https://www.amazontrust.com/repository/AmazonRootCA1.pem',
         fingerprint: 'SHA256:++KUrOSCJlM8ZbQGz6HRgN2FXI4xjvuZfV9pDYTqHzo=',
-        description: 'Amazon Root CA certificate for AWS IoT Core device connections'
+        description: 'Amazon Root CA certificate for ESP32 receiver AWS IoT Core connections',
+        usage: 'TLS certificate validation for MQTT over TLS'
       }),
-      'Amazon Root CA information for device configuration',
+      'Amazon Root CA information for ESP32 receiver configuration',
       `/acorn-pups/${props.environment}/iot-core/amazon-root-ca`
+    );
+
+    // Certificate security best practices
+    this.parameterHelper.createParameter(
+      'CertificateSecurityBestPracticesParam',
+      JSON.stringify({
+        storage: 'Store certificates in ESP32 secure flash partition',
+        rotation: 'Implement certificate rotation before expiration',
+        backup: 'Keep backup certificates in S3 for recovery',
+        monitoring: 'Monitor certificate expiration dates',
+        revoking: 'Implement certificate revocation for compromised devices'
+      }),
+      'Certificate security best practices for ESP32 receivers',
+      `/acorn-pups/${props.environment}/iot-core/certificate-security-best-practices`
     );
   }
 } 

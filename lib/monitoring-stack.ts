@@ -26,15 +26,15 @@ export class MonitoringStack extends cdk.Stack {
       dashboardName: `AcornPupsIoT-${props.environment}`,
       widgets: [
         [
-          // Device Connectivity Widget
+          // ESP32 Receiver Connectivity Widget
           new cloudwatch.GraphWidget({
-            title: 'Device Connectivity',
+            title: 'ESP32 Receiver Connectivity',
             left: [
               new cloudwatch.Metric({
                 namespace: 'AWS/IoT',
                 metricName: 'Connect.Success',
                 dimensionsMap: {
-                  ClientId: 'acorn-esp32-*'
+                  ClientId: 'acorn-receiver-*'
                 },
                 statistic: 'Sum'
               }),
@@ -42,7 +42,7 @@ export class MonitoringStack extends cdk.Stack {
                 namespace: 'AWS/IoT',
                 metricName: 'Connect.Failure',
                 dimensionsMap: {
-                  ClientId: 'acorn-esp32-*'
+                  ClientId: 'acorn-receiver-*'
                 },
                 statistic: 'Sum'
               })
@@ -51,9 +51,9 @@ export class MonitoringStack extends cdk.Stack {
             height: 6
           }),
           
-          // Message Processing Widget
+          // RF Button Press Message Processing Widget
           new cloudwatch.GraphWidget({
-            title: 'Message Processing',
+            title: 'RF Button Press Message Processing',
             left: [
               new cloudwatch.Metric({
                 namespace: 'AWS/IoT',
@@ -77,7 +77,7 @@ export class MonitoringStack extends cdk.Stack {
           })
         ],
         [
-          // Rule Execution Widget
+          // IoT Rule Execution Widget
           new cloudwatch.GraphWidget({
             title: 'IoT Rule Executions',
             left: [
@@ -96,6 +96,14 @@ export class MonitoringStack extends cdk.Stack {
                   RuleName: `AcornPupsDeviceStatus_${props.environment}`
                 },
                 statistic: 'Sum'
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/IoT',
+                metricName: 'RuleExecution',
+                dimensionsMap: {
+                  RuleName: `AcornPupsDeviceReset_${props.environment}`
+                },
+                statistic: 'Sum'
               })
             ],
             width: 12,
@@ -103,13 +111,13 @@ export class MonitoringStack extends cdk.Stack {
           }),
         ],
         [
-          // Device Status Widget
+          // Active ESP32 Receivers Widget
           new cloudwatch.SingleValueWidget({
-            title: 'Active Devices',
+            title: 'Active ESP32 Receivers',
             metrics: [
               new cloudwatch.Metric({
                 namespace: 'AcornPups/IoT',
-                metricName: 'ActiveDevices',
+                metricName: 'ActiveReceivers',
                 statistic: 'Average'
               })
             ],
@@ -179,15 +187,15 @@ export class MonitoringStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
     });
 
-    // Device Connectivity Alarm
-    this.alarms.deviceConnectivity = new cloudwatch.Alarm(this, 'DeviceConnectivityAlarm', {
-      alarmName: `AcornPupsIoT-DeviceConnectivity-${props.environment}`,
-      alarmDescription: 'Device connectivity issues detected',
+    // ESP32 Receiver Connectivity Alarm
+    this.alarms.receiverConnectivity = new cloudwatch.Alarm(this, 'ReceiverConnectivityAlarm', {
+      alarmName: `AcornPupsIoT-ReceiverConnectivity-${props.environment}`,
+      alarmDescription: 'ESP32 receiver connectivity issues detected',
       metric: new cloudwatch.Metric({
         namespace: 'AWS/IoT',
         metricName: 'Connect.Failure',
         dimensionsMap: {
-          ClientId: 'acorn-esp32-*'
+          ClientId: 'acorn-receiver-*'
         },
         statistic: 'Sum',
         period: cdk.Duration.minutes(5)
@@ -198,78 +206,74 @@ export class MonitoringStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
     });
 
-    // Add tags to alarms
-    Object.entries(this.alarms).forEach(([name, alarm]) => {
-      cdk.Tags.of(alarm).add('Project', 'acorn-pups');
-      cdk.Tags.of(alarm).add('Environment', props.environment);
-      cdk.Tags.of(alarm).add('Service', 'IoT-Core');
-      cdk.Tags.of(alarm).add('Component', 'Alarm');
-      cdk.Tags.of(alarm).add('AlarmType', name);
-    });
-
     // Store monitoring information in Parameter Store
     this.parameterHelper.createParameter(
       'DashboardNameParam',
       this.dashboard.dashboardName,
-      'Name of the CloudWatch Dashboard',
-      `/acorn-pups/${props.environment}/monitoring/dashboard/name`
+      'CloudWatch Dashboard name for Acorn Pups IoT monitoring',
+      `/acorn-pups/${props.environment}/monitoring/dashboard-name`
     );
 
     this.parameterHelper.createParameter(
-      'DashboardUrlParam',
-      `https://console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${this.dashboard.dashboardName}`,
-      'URL of the CloudWatch Dashboard',
-      `/acorn-pups/${props.environment}/monitoring/dashboard/url`
+      'AlarmNamesParam',
+      JSON.stringify({
+        highErrorRate: this.alarms.highErrorRate.alarmName,
+        receiverConnectivity: this.alarms.receiverConnectivity.alarmName
+      }),
+      'CloudWatch Alarm names for Acorn Pups IoT monitoring',
+      `/acorn-pups/${props.environment}/monitoring/alarm-names`
     );
-
-    // Store alarm information
-    Object.entries(this.alarms).forEach(([name, alarm]) => {
-      this.parameterHelper.createParameter(
-        `${name}AlarmArnParam`,
-        alarm.alarmArn,
-        `ARN of the ${name} alarm`,
-        `/acorn-pups/${props.environment}/monitoring/alarms/${name}/arn`
-      );
-
-      this.parameterHelper.createParameter(
-        `${name}AlarmNameParam`,
-        alarm.alarmName,
-        `Name of the ${name} alarm`,
-        `/acorn-pups/${props.environment}/monitoring/alarms/${name}/name`
-      );
-    });
 
     // Create CloudFormation outputs with Parameter Store integration
     this.parameterHelper.createOutputWithParameter(
       'DashboardNameOutput',
       this.dashboard.dashboardName,
       'Name of the CloudWatch Dashboard',
-      `AcornPupsIoTDashboardName-${props.environment}`
+      `AcornPupsDashboardName-${props.environment}`
     );
 
     this.parameterHelper.createOutputWithParameter(
-      'DashboardUrlOutput',
-      `https://console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${this.dashboard.dashboardName}`,
-      'URL of the CloudWatch Dashboard',
-      `AcornPupsIoTDashboardUrl-${props.environment}`
+      'HighErrorRateAlarmArnOutput',
+      this.alarms.highErrorRate.alarmArn,
+      'ARN of the High Error Rate Alarm',
+      `AcornPupsHighErrorRateAlarmArn-${props.environment}`
     );
 
-    // Additional monitoring parameters
-    this.parameterHelper.createParameter(
-      'MetricNamespacesParam',
-      JSON.stringify(['AWS/IoT', 'AcornPups/IoT']),
-      'CloudWatch metric namespaces used by the IoT system',
-      `/acorn-pups/${props.environment}/monitoring/metric-namespaces`
+    this.parameterHelper.createOutputWithParameter(
+      'ReceiverConnectivityAlarmArnOutput',
+      this.alarms.receiverConnectivity.alarmArn,
+      'ARN of the Receiver Connectivity Alarm',
+      `AcornPupsReceiverConnectivityAlarmArn-${props.environment}`
     );
 
+    // Monitoring metrics configuration
     this.parameterHelper.createParameter(
-      'AlarmThresholdsParam',
+      'MonitoringMetricsParam',
       JSON.stringify({
-        errorRate: 5,
-        connectivityFailures: 10,
+        receiverConnectivity: {
+          namespace: 'AWS/IoT',
+          successMetric: 'Connect.Success',
+          failureMetric: 'Connect.Failure',
+          dimension: 'ClientId: acorn-receiver-*'
+        },
+        buttonPressProcessing: {
+          namespace: 'AWS/IoT',
+          publishMetric: 'PublishIn.Success',
+          topicDimension: 'acorn-pups/button-press'
+        },
+        ruleExecution: {
+          namespace: 'AWS/IoT',
+          executionMetric: 'RuleExecution',
+          failureMetric: 'RuleExecution.Failure',
+          rules: [
+            `AcornPupsButtonPress_${props.environment}`,
+            `AcornPupsDeviceStatus_${props.environment}`,
+            `AcornPupsDeviceReset_${props.environment}`
+          ]
+        }
       }),
-      'Alarm thresholds for monitoring',
-      `/acorn-pups/${props.environment}/monitoring/alarm-thresholds`
+      'CloudWatch metrics configuration for Acorn Pups IoT monitoring',
+      `/acorn-pups/${props.environment}/monitoring/metrics-config`
     );
   }
 } 

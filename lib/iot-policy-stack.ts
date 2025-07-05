@@ -6,7 +6,7 @@ import { IotPolicyStackProps, IOT_CLIENT_ID_PATTERN } from './types';
 import { ParameterStoreHelper } from './parameter-store-helper';
 
 export class IotPolicyStack extends cdk.Stack {
-  public readonly devicePolicy: iot.CfnPolicy;
+  public readonly receiverDevicePolicy: iot.CfnPolicy;
   public readonly iotRuleExecutionRole: iam.Role;
   private parameterHelper: ParameterStoreHelper;
 
@@ -19,9 +19,9 @@ export class IotPolicyStack extends cdk.Stack {
       stackName: 'policies',
     });
 
-    // Create IoT Device Policy with minimal security principle
-    this.devicePolicy = new iot.CfnPolicy(this, 'AcornPupsDevicePolicy', {
-      policyName: `AcornPupsDevicePolicy-${props.environment}`,
+    // Create IoT Device Policy for ESP32 receivers with minimal security principle
+    this.receiverDevicePolicy = new iot.CfnPolicy(this, 'AcornPupsReceiverPolicy', {
+      policyName: `AcornPupsReceiverPolicy-${props.environment}`,
       policyDocument: {
         Version: '2012-10-17',
         Statement: [
@@ -40,7 +40,8 @@ export class IotPolicyStack extends cdk.Stack {
             Action: 'iot:Publish',
             Resource: [
               `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/button-press/\${iot:ClientId}`,
-              `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/status/\${iot:ClientId}`
+              `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/status/\${iot:ClientId}`,
+              `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/commands/\${iot:ClientId}/reset`
             ]
           },
           {
@@ -80,6 +81,10 @@ export class IotPolicyStack extends cdk.Stack {
         {
           key: 'Component',
           value: 'Policy'
+        },
+        {
+          key: 'DeviceType',
+          value: 'ESP32-Receiver'
         }
       ]
     });
@@ -150,32 +155,32 @@ export class IotPolicyStack extends cdk.Stack {
 
     // Store policy information in Parameter Store
     this.parameterHelper.createParameter(
-      'DevicePolicyArnParam',
-      this.devicePolicy.attrArn,
-      'ARN of the AcornPupsDevice Policy',
-      `/acorn-pups/${props.environment}/iot-core/device-policy/arn`
+      'ReceiverDevicePolicyArnParam',
+      this.receiverDevicePolicy.attrArn,
+      'ARN of the AcornPupsReceiver Policy',
+      `/acorn-pups/${props.environment}/iot-core/receiver-policy/arn`
     );
 
     this.parameterHelper.createParameter(
-      'DevicePolicyNameParam',
-      this.devicePolicy.policyName!,
-      'Name of the AcornPupsDevice Policy',
-      `/acorn-pups/${props.environment}/iot-core/device-policy/name`
+      'ReceiverDevicePolicyNameParam',
+      this.receiverDevicePolicy.policyName!,
+      'Name of the AcornPupsReceiver Policy',
+      `/acorn-pups/${props.environment}/iot-core/receiver-policy/name`
     );
 
     // Create outputs with Parameter Store integration
     this.parameterHelper.createOutputWithParameter(
-      'DevicePolicyArnOutput',
-      this.devicePolicy.attrArn,
-      'ARN of the Acorn Pups Device Policy',
-      `AcornPupsDevicePolicyArn-${props.environment}`
+      'ReceiverDevicePolicyArnOutput',
+      this.receiverDevicePolicy.attrArn,
+      'ARN of the Acorn Pups Receiver Policy',
+      `AcornPupsReceiverPolicyArn-${props.environment}`
     );
 
     this.parameterHelper.createOutputWithParameter(
-      'DevicePolicyNameOutput',
-      this.devicePolicy.policyName!,
-      'Name of the Acorn Pups Device Policy',
-      `AcornPupsDevicePolicyName-${props.environment}`
+      'ReceiverDevicePolicyNameOutput',
+      this.receiverDevicePolicy.policyName!,
+      'Name of the Acorn Pups Receiver Policy',
+      `AcornPupsReceiverPolicyName-${props.environment}`
     );
 
     this.parameterHelper.createOutputWithParameter(
@@ -196,20 +201,36 @@ export class IotPolicyStack extends cdk.Stack {
     this.parameterHelper.createParameter(
       'ClientIdPatternParam',
       IOT_CLIENT_ID_PATTERN,
-      'Client ID pattern for IoT device connections',
+      'Client ID pattern for IoT receiver connections',
       `/acorn-pups/${props.environment}/iot-core/client-id-pattern`
     );
 
     this.parameterHelper.createParameter(
-      'TopicPrefixesParam',
+      'IoTRuleExecutionRoleArnParam',
+      this.iotRuleExecutionRole.roleArn,
+      'ARN of the IoT Rule Execution Role',
+      `/acorn-pups/${props.environment}/iot-core/rule-execution-role/arn`
+    );
+
+    this.parameterHelper.createParameter(
+      'IoTRuleExecutionRoleNameParam',
+      this.iotRuleExecutionRole.roleName,
+      'Name of the IoT Rule Execution Role',
+      `/acorn-pups/${props.environment}/iot-core/rule-execution-role/name`
+    );
+
+    // MQTT topic structure parameters
+    this.parameterHelper.createParameter(
+      'MqttTopicStructureParam',
       JSON.stringify({
-        buttonPress: 'acorn-pups/button-press/',
-        status: 'acorn-pups/status/',
-        settings: 'acorn-pups/settings/',
-        commands: 'acorn-pups/commands/'
+        buttonPress: 'acorn-pups/button-press/{deviceId}',
+        status: 'acorn-pups/status/{deviceId}',
+        settings: 'acorn-pups/settings/{deviceId}',
+        commands: 'acorn-pups/commands/{deviceId}',
+        reset: 'acorn-pups/commands/{deviceId}/reset'
       }),
-      'MQTT topic prefixes for device communication',
-      `/acorn-pups/${props.environment}/iot-core/topic-prefixes`
+      'MQTT topic structure for Acorn Pups system',
+      `/acorn-pups/${props.environment}/iot-core/mqtt-topics`
     );
   }
 } 

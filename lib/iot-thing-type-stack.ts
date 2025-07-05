@@ -5,7 +5,7 @@ import { IotThingTypeStackProps } from './types';
 import { ParameterStoreHelper } from './parameter-store-helper';
 
 export class IotThingTypeStack extends cdk.Stack {
-  public readonly acornPupsDeviceThingType: iot.CfnThingType;
+  public readonly acornPupsReceiverThingType: iot.CfnThingType;
   private parameterHelper: ParameterStoreHelper;
 
   constructor(scope: Construct, id: string, props: IotThingTypeStackProps) {
@@ -17,15 +17,15 @@ export class IotThingTypeStack extends cdk.Stack {
       stackName: 'thing-types',
     });
 
-    // Create AcornPupsDevice Thing Type
-    this.acornPupsDeviceThingType = new iot.CfnThingType(this, 'AcornPupsDeviceThingType', {
-      thingTypeName: `AcornPupsDevice-${props.environment}`,
+    // Create AcornPupsReceiver Thing Type for ESP32 receivers only
+    this.acornPupsReceiverThingType = new iot.CfnThingType(this, 'AcornPupsReceiverThingType', {
+      thingTypeName: `AcornPupsReceiver-${props.environment}`,
       thingTypeProperties: {
-        thingTypeDescription: 'IoT Thing Type for Acorn Pups ESP32-based dog communication devices including button and ringer components',
+        thingTypeDescription: 'IoT Thing Type for Acorn Pups ESP32-based smart receivers that plug into wall outlets and ring when RF buttons are pressed',
         searchableAttributes: [
           'deviceName',
-          'macAddress',
-          'status'
+          'serialNumber',
+          'macAddress'
         ]
       },
       tags: [
@@ -44,60 +44,100 @@ export class IotThingTypeStack extends cdk.Stack {
         {
           key: 'Component',
           value: 'ThingType'
+        },
+        {
+          key: 'DeviceType',
+          value: 'ESP32-Receiver'
         }
       ]
     });
 
     // Create Parameter Store parameters for cross-stack integration
     this.parameterHelper.createParameter(
-      'ThingTypeArnParam',
-      this.acornPupsDeviceThingType.attrArn,
-      'ARN of the AcornPupsDevice Thing Type',
-      `/acorn-pups/${props.environment}/iot-core/thing-type/arn`
+      'ReceiverThingTypeArnParam',
+      this.acornPupsReceiverThingType.attrArn,
+      'ARN of the AcornPupsReceiver Thing Type',
+      `/acorn-pups/${props.environment}/iot-core/thing-type/receiver/arn`
     );
 
     this.parameterHelper.createParameter(
-      'ThingTypeNameParam',
-      this.acornPupsDeviceThingType.thingTypeName!,
-      'Name of the AcornPupsDevice Thing Type',
-      `/acorn-pups/${props.environment}/iot-core/thing-type/name`
+      'ReceiverThingTypeNameParam',
+      this.acornPupsReceiverThingType.thingTypeName!,
+      'Name of the AcornPupsReceiver Thing Type',
+      `/acorn-pups/${props.environment}/iot-core/thing-type/receiver/name`
     );
 
     // Create CloudFormation outputs with Parameter Store integration
     this.parameterHelper.createOutputWithParameter(
-      'ThingTypeArnOutput',
-      this.acornPupsDeviceThingType.attrArn,
-      'ARN of the AcornPupsDevice Thing Type',
-      `AcornPupsThingTypeArn-${props.environment}`
+      'ReceiverThingTypeArnOutput',
+      this.acornPupsReceiverThingType.attrArn,
+      'ARN of the AcornPupsReceiver Thing Type',
+      `AcornPupsReceiverThingTypeArn-${props.environment}`
     );
 
     this.parameterHelper.createOutputWithParameter(
-      'ThingTypeNameOutput', 
-      this.acornPupsDeviceThingType.thingTypeName!,
-      'Name of the AcornPupsDevice Thing Type',
-      `AcornPupsThingTypeName-${props.environment}`
+      'ReceiverThingTypeNameOutput', 
+      this.acornPupsReceiverThingType.thingTypeName!,
+      'Name of the AcornPupsReceiver Thing Type',
+      `AcornPupsReceiverThingTypeName-${props.environment}`
     );
 
     this.parameterHelper.createOutputWithParameter(
-      'ThingTypeIdOutput',
-      this.acornPupsDeviceThingType.ref,
-      'CloudFormation reference of the AcornPupsDevice Thing Type',
-      `AcornPupsThingTypeId-${props.environment}`
+      'ReceiverThingTypeIdOutput',
+      this.acornPupsReceiverThingType.ref,
+      'CloudFormation reference of the AcornPupsReceiver Thing Type',
+      `AcornPupsReceiverThingTypeId-${props.environment}`
     );
 
     // Additional parameters for Lambda functions to use
     this.parameterHelper.createParameter(
-      'ThingTypeDescriptionParam',
-      'IoT Thing Type for Acorn Pups ESP32-based dog communication devices including button and ringer components',
-      'Description of the AcornPupsDevice Thing Type',
-      `/acorn-pups/${props.environment}/iot-core/thing-type/description`
+      'ReceiverThingTypeDescriptionParam',
+      'IoT Thing Type for Acorn Pups ESP32-based smart receivers that plug into wall outlets and ring when RF buttons are pressed',
+      'Description of the AcornPupsReceiver Thing Type',
+      `/acorn-pups/${props.environment}/iot-core/thing-type/receiver/description`
     );
 
     this.parameterHelper.createParameter(
-      'SearchableAttributesParam',
-      JSON.stringify(['deviceName', 'macAddress', 'status']),
-      'Searchable attributes for the AcornPupsDevice Thing Type (AWS limit: 3 max)',
-      `/acorn-pups/${props.environment}/iot-core/thing-type/searchable-attributes`
+      'ReceiverSearchableAttributesParam',
+      JSON.stringify(['deviceName', 'serialNumber', 'macAddress']),
+      'Searchable attributes for the AcornPupsReceiver Thing Type (AWS limit: 3 max)',
+      `/acorn-pups/${props.environment}/iot-core/thing-type/receiver/searchable-attributes`
+    );
+
+    // RF Button information (not IoT devices, just for reference)
+    this.parameterHelper.createParameter(
+      'RfButtonInfoParam',
+      JSON.stringify({
+        type: 'RF_TRANSMITTER',
+        frequency: '315MHz_or_433MHz',
+        autoRecognition: true,
+        batteryType: 'CR2032',
+        registrationRequired: false,
+        description: 'RF buttons are simple transmitters that send signals to ESP32 receivers. They are not IoT devices and do not connect to AWS IoT Core.'
+      }),
+      'RF Button technical information for documentation',
+      `/acorn-pups/${props.environment}/rf-buttons/info`
+    );
+
+    // Device architecture information
+    this.parameterHelper.createParameter(
+      'DeviceArchitectureParam',
+      JSON.stringify({
+        receivers: {
+          type: 'ESP32_RECEIVER',
+          connectivity: 'WiFi_and_MQTT',
+          features: ['RF_reception', 'speaker', 'LED_indicators', 'wall_outlet_power'],
+          iotIntegration: true
+        },
+        buttons: {
+          type: 'RF_TRANSMITTER',
+          connectivity: 'RF_only',
+          features: ['button_press', 'battery_powered', 'LED_feedback'],
+          iotIntegration: false
+        }
+      }),
+      'Device architecture information for the Acorn Pups system',
+      `/acorn-pups/${props.environment}/device-architecture`
     );
   }
 } 

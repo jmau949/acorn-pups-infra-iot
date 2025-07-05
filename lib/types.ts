@@ -41,22 +41,49 @@ export interface IotRule {
 }
 
 export interface DeviceAttributes {
+  deviceId: string;
+  serialNumber: string;
+  macAddress: string;
   deviceName: string;
   firmwareVersion: string;
-  macAddress: string;
-  deviceType: string;
-  location?: string;
+  hardwareVersion: string;
+  wifiSsid: string;
+  signalStrength: number;
+  deviceType: 'ESP32_RECEIVER';
+  isOnline: boolean;
+  lastSeen: string;
 }
 
 export interface DeviceSettings {
-  volume: number;
-  ringerType: string;
-  ringerDuration: number;
-  cooldownPeriod: number;
+  soundEnabled: boolean;
+  soundVolume: number;
   ledBrightness: number;
-  autoSleep: boolean;
-  sleepTimeout: number;
-  customSoundUrl?: string;
+  notificationCooldown: number;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+}
+
+export interface ButtonPressEvent {
+  deviceId: string;
+  buttonRfId: string;
+  timestamp: string;
+  batteryLevel?: number;
+  signalStrength?: number;
+}
+
+export interface DeviceStatusEvent {
+  deviceId: string;
+  statusType: 'CURRENT' | 'HEALTH' | 'CONNECTIVITY';
+  timestamp: string;
+  isOnline: boolean;
+  signalStrength?: number;
+  memoryUsage?: number;
+  cpuTemperature?: number;
+  uptime?: number;
+  errorCount?: number;
+  lastErrorMessage?: string;
+  firmwareVersion?: string;
 }
 
 export interface IotTopicTemplates {
@@ -64,6 +91,7 @@ export interface IotTopicTemplates {
   status: string;
   settings: string;
   commands: string;
+  commandsReset: string;
 }
 
 export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
@@ -71,6 +99,31 @@ export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
   status: 'acorn-pups/status/+',
   settings: 'acorn-pups/settings/+',
   commands: 'acorn-pups/commands/+',
+  commandsReset: 'acorn-pups/commands/+/reset',
 };
 
-export const IOT_CLIENT_ID_PATTERN = 'acorn-esp32-*'; 
+export const IOT_CLIENT_ID_PATTERN = 'acorn-receiver-*';
+
+export const LAMBDA_FUNCTIONS = {
+  handleButtonPress: 'handleButtonPress',
+  updateDeviceStatus: 'updateDeviceStatus',
+  resetDevice: 'resetDevice',
+};
+
+export const DYNAMODB_TABLES = {
+  users: 'Users',
+  devices: 'Devices',
+  deviceUsers: 'DeviceUsers',
+  invitations: 'Invitations',
+  deviceStatus: 'DeviceStatus',
+};
+
+export interface DeviceCertificateConfig {
+  type: 'AWS_MANAGED';
+  autoActivate: boolean;
+  attachPolicy: boolean;
+  policyName: string;
+  thingTypeName: string;
+  validityPeriod: number;
+  certificateStatus: 'ACTIVE' | 'INACTIVE';
+} 

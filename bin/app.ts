@@ -14,7 +14,7 @@ const environment = app.node.tryGetContext('environment') || 'dev';
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 const region = process.env.CDK_DEFAULT_REGION || 'us-east-1';
 
-console.log(`Deploying IoT infrastructure to environment: ${environment}`);
+console.log(`Deploying Acorn Pups IoT infrastructure to environment: ${environment}`);
 
 const env = {
   account,
@@ -52,7 +52,7 @@ const certificateStack = new CertificateManagementStack(app, `${stackPrefix}-cer
   ...envConfig,
 });
 
-// IoT Thing Type Stack
+// IoT Thing Type Stack - ESP32 Receivers only
 const thingTypeStack = new IotThingTypeStack(app, `${stackPrefix}-thing-types`, {
   env,
   environment,
@@ -63,7 +63,7 @@ const thingTypeStack = new IotThingTypeStack(app, `${stackPrefix}-thing-types`, 
 const policyStack = new IotPolicyStack(app, `${stackPrefix}-policies`, {
   env,
   environment,
-  thingTypeName: thingTypeStack.acornPupsDeviceThingType.thingTypeName!,
+  thingTypeName: thingTypeStack.acornPupsReceiverThingType.thingTypeName!,
   ...envConfig,
 });
 
@@ -79,7 +79,7 @@ const rulesStack = new IotRulesStack(app, `${stackPrefix}-rules`, {
 const monitoringStack = new MonitoringStack(app, `${stackPrefix}-monitoring`, {
   env,
   environment,
-  thingTypeName: thingTypeStack.acornPupsDeviceThingType.thingTypeName!,
+  thingTypeName: thingTypeStack.acornPupsReceiverThingType.thingTypeName!,
   iotRules: rulesStack.rules,
   ...envConfig,
 });
@@ -95,4 +95,5 @@ monitoringStack.addDependency(rulesStack);
 cdk.Tags.of(app).add('Project', 'acorn-pups');
 cdk.Tags.of(app).add('Environment', environment);
 cdk.Tags.of(app).add('Service', 'IoT-Core');
-cdk.Tags.of(app).add('ManagedBy', 'CDK'); 
+cdk.Tags.of(app).add('ManagedBy', 'CDK');
+cdk.Tags.of(app).add('Architecture', 'ESP32-Receiver-RF-Button'); 
