@@ -33,7 +33,7 @@ export class CertificateManagementStack extends cdk.Stack {
       removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     });
 
-    // Add tags to S3 bucket
+    // Add tags to resources
     cdk.Tags.of(this.certificateBucket).add('Project', 'acorn-pups');
     cdk.Tags.of(this.certificateBucket).add('Environment', props.environment);
     cdk.Tags.of(this.certificateBucket).add('Service', 'IoT-Core');
@@ -102,6 +102,83 @@ export class CertificateManagementStack extends cdk.Stack {
       }),
       'ESP32 receiver certificate configuration for AWS IoT Core',
       `/acorn-pups/${props.environment}/iot-core/receiver-certificate-config`
+    );
+
+    // API-specific certificate generation workflow (references Lambda execution role from API repo)
+    this.parameterHelper.createParameter(
+      'ApiCertificateGenerationWorkflowParam',
+      JSON.stringify({
+        apiEndpoint: 'POST /devices/register',
+        method: 'LAMBDA_FUNCTION',
+        description: 'Certificate generation workflow for device registration API',
+        lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/execution-role/arn`,
+        steps: [
+          {
+            step: 1,
+            action: 'createKeysAndCertificate',
+            description: 'Generate AWS-managed X.509 certificate and private key',
+            apiCall: 'iot:CreateKeysAndCertificate',
+            parameters: {
+              setAsActive: true
+            }
+          },
+          {
+            step: 2,
+            action: 'createThing',
+            description: 'Create IoT Thing for ESP32 receiver',
+            apiCall: 'iot:CreateThing',
+            parameters: {
+              thingName: '{deviceId}',
+              thingTypeName: `AcornPupsReceiver-${props.environment}`,
+              attributePayload: {
+                attributes: {
+                  deviceName: '{deviceName}',
+                  serialNumber: '{serialNumber}',
+                  macAddress: '{macAddress}'
+                }
+              }
+            }
+          },
+          {
+            step: 3,
+            action: 'attachPolicy',
+            description: 'Attach receiver policy to certificate',
+            apiCall: 'iot:AttachPolicy',
+            parameters: {
+              policyName: `AcornPupsReceiverPolicy-${props.environment}`,
+              target: '{certificateArn}'
+            }
+          },
+          {
+            step: 4,
+            action: 'attachThingPrincipal',
+            description: 'Attach certificate to Thing as principal',
+            apiCall: 'iot:AttachThingPrincipal',
+            parameters: {
+              thingName: '{deviceId}',
+              principal: '{certificateArn}'
+            }
+          },
+          {
+            step: 5,
+            action: 'storeBackup',
+            description: 'Store certificate backup in S3',
+            apiCall: 's3:PutObject',
+            parameters: {
+              bucket: this.certificateBucket.bucketName,
+              key: 'devices/{deviceId}/certificate.pem'
+            }
+          }
+        ],
+        response: {
+          deviceCertificate: 'X.509 PEM format certificate',
+          privateKey: 'RSA PEM format private key',
+          iotEndpoint: iotDataEndpoint
+        },
+        note: 'Lambda execution role created in API repository with necessary IoT permissions'
+      }),
+      'API-specific certificate generation workflow for device registration',
+      `/acorn-pups/${props.environment}/iot-core/api-certificate-generation-workflow`
     );
 
     // Certificate generation workflow for ESP32 receivers
@@ -218,6 +295,84 @@ export class CertificateManagementStack extends cdk.Stack {
       }),
       'Certificate security best practices for ESP32 receivers',
       `/acorn-pups/${props.environment}/iot-core/certificate-security-best-practices`
+    );
+
+    // Device reset certificate cleanup workflow
+    this.parameterHelper.createParameter(
+      'DeviceResetCertificateCleanupParam',
+      JSON.stringify({
+        description: 'Certificate cleanup workflow for device reset API',
+        lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/execution-role/arn`,
+        steps: [
+          {
+            step: 1,
+            action: 'listThingPrincipals',
+            description: 'List certificates attached to the Thing'
+          },
+          {
+            step: 2,
+            action: 'detachThingPrincipal',
+            description: 'Detach certificates from the Thing'
+          },
+          {
+            step: 3,
+            action: 'detachPolicy',
+            description: 'Detach policies from certificates'
+          },
+          {
+            step: 4,
+            action: 'updateCertificate',
+            description: 'Set certificate status to INACTIVE'
+          },
+          {
+            step: 5,
+            action: 'deleteCertificate',
+            description: 'Delete the certificate after grace period'
+          },
+          {
+            step: 6,
+            action: 'deleteThing',
+            description: 'Delete the IoT Thing'
+          }
+        ],
+        note: 'Uses Lambda execution role created in API repository with necessary IoT permissions'
+      }),
+      'Certificate cleanup workflow for device reset',
+      `/acorn-pups/${props.environment}/iot-core/device-reset-certificate-cleanup`
+    );
+
+    // Lambda execution role requirements (documentation only - role created in API repo)
+    this.parameterHelper.createParameter(
+      'LambdaIoTPermissionsRequiredParam',
+      JSON.stringify({
+        description: 'IoT permissions required for Lambda execution role created in API repository',
+        roleLocation: 'acorn-pups-infrastructure-api repository',
+        roleParameterPath: `/acorn-pups/${props.environment}/lambda-functions/execution-role/arn`,
+        requiredPermissions: [
+          'iot:CreateKeysAndCertificate',
+          'iot:CreateThing',
+          'iot:AttachPolicy',
+          'iot:AttachThingPrincipal',
+          'iot:DetachThingPrincipal',
+          'iot:DetachPolicy',
+          'iot:DeleteThing',
+          'iot:DeleteCertificate',
+          'iot:UpdateCertificate',
+          'iot:DescribeThing',
+          'iot:DescribeCertificate',
+          'iot:ListThingPrincipals',
+          'iot:ListPrincipalThings',
+          'iot:Publish'
+        ],
+        s3Permissions: [
+          's3:GetObject',
+          's3:PutObject', 
+          's3:DeleteObject'
+        ],
+        s3Resource: `${this.certificateBucket.bucketArn}/*`
+      }),
+      'IoT permissions required for Lambda execution role (created in API repo)',
+      `/acorn-pups/${props.environment}/iot-core/lambda-iot-permissions-required`
     );
   }
 } 

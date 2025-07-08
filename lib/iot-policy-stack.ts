@@ -39,8 +39,11 @@ export class IotPolicyStack extends cdk.Stack {
             Effect: 'Allow',
             Action: 'iot:Publish',
             Resource: [
+              // Button press events - real-time processing
               `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/button-press/\${iot:ClientId}`,
+              // Device status updates
               `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/status/\${iot:ClientId}`,
+              // Device reset notifications (from device to cloud)
               `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/commands/\${iot:ClientId}/reset`
             ]
           },
@@ -51,8 +54,13 @@ export class IotPolicyStack extends cdk.Stack {
               'iot:Receive'
             ],
             Resource: [
+              // Settings updates from cloud to device
               `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/settings/\${iot:ClientId}`,
-              `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/commands/\${iot:ClientId}`
+              // Command topics for device control
+              `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/commands/\${iot:ClientId}`,
+              `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/commands/\${iot:ClientId}/reset`,
+              // Firmware update topic
+              `arn:aws:iot:${this.region}:${this.account}:topic/acorn-pups/firmware/\${iot:ClientId}`
             ]
           },
           {
@@ -61,7 +69,12 @@ export class IotPolicyStack extends cdk.Stack {
               'iot:UpdateThingShadow',
               'iot:GetThingShadow'
             ],
-            Resource: `arn:aws:iot:${this.region}:${this.account}:thing/\${iot:ClientId}`
+            Resource: `arn:aws:iot:${this.region}:${this.account}:thing/\${iot:ClientId}`,
+            Condition: {
+              StringEquals: {
+                'iot:Connection.Thing.IsAttached': 'true'
+              }
+            }
           }
         ]
       },
@@ -143,6 +156,19 @@ export class IotPolicyStack extends cdk.Stack {
               ]
             })
           ]
+        }),
+        SNSPublishPolicy: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'sns:Publish'
+              ],
+              resources: [
+                `arn:aws:sns:${this.region}:${this.account}:acorn-pups-${props.environment}-*`
+              ]
+            })
+          ]
         })
       }
     });
@@ -219,7 +245,7 @@ export class IotPolicyStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/rule-execution-role/name`
     );
 
-    // MQTT topic structure parameters
+    // MQTT topic structure parameters (aligned with API specification)
     this.parameterHelper.createParameter(
       'MqttTopicStructureParam',
       JSON.stringify({
@@ -227,10 +253,55 @@ export class IotPolicyStack extends cdk.Stack {
         status: 'acorn-pups/status/{deviceId}',
         settings: 'acorn-pups/settings/{deviceId}',
         commands: 'acorn-pups/commands/{deviceId}',
-        reset: 'acorn-pups/commands/{deviceId}/reset'
+        reset: 'acorn-pups/commands/{deviceId}/reset',
+        firmware: 'acorn-pups/firmware/{deviceId}'
       }),
       'MQTT topic structure for Acorn Pups system',
       `/acorn-pups/${props.environment}/iot-core/mqtt-topics`
+    );
+
+    // API endpoint integration parameters
+    this.parameterHelper.createParameter(
+      'ApiIntegrationParam',
+      JSON.stringify({
+        deviceRegistration: {
+          endpoint: 'POST /devices/register',
+          certificateGeneration: 'AWS_MANAGED_CERTIFICATES',
+          thingCreation: 'AUTOMATIC'
+        },
+        deviceSettings: {
+          endpoint: 'PUT /devices/{deviceId}/settings',
+          mqttTopic: 'acorn-pups/settings/{deviceId}',
+          realTimeUpdate: true
+        },
+        deviceReset: {
+          endpoint: 'POST /devices/{deviceId}/reset',
+          mqttTopic: 'acorn-pups/commands/{deviceId}/reset',
+          cleanup: 'FULL_DEVICE_CLEANUP'
+        },
+        buttonPress: {
+          mqttTopic: 'acorn-pups/button-press/{deviceId}',
+          processing: 'REAL_TIME_NOTIFICATIONS',
+          storage: 'NO_PERSISTENT_STORAGE'
+        }
+      }),
+      'API integration configuration for IoT operations',
+      `/acorn-pups/${props.environment}/iot-core/api-integration`
+    );
+
+    // Security and permissions configuration
+    this.parameterHelper.createParameter(
+      'SecurityConfigParam',
+      JSON.stringify({
+        deviceAuthentication: 'X509_CERTIFICATES',
+        certificateType: 'AWS_MANAGED',
+        policyAttachment: 'AUTOMATIC',
+        thingPrincipalAttachment: 'AUTOMATIC',
+        deviceValidation: 'THING_ATTACHMENT_REQUIRED',
+        topicPermissions: 'DEVICE_SCOPED'
+      }),
+      'Security configuration for IoT device connectivity',
+      `/acorn-pups/${props.environment}/iot-core/security-config`
     );
   }
 } 
