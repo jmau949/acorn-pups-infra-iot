@@ -104,14 +104,15 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/receiver-certificate-config`
     );
 
-    // API-specific certificate generation workflow (references Lambda execution role from API repo)
+    // API-specific certificate generation workflow (references IoT Device Management role from API repo)
     this.parameterHelper.createParameter(
       'ApiCertificateGenerationWorkflowParam',
       JSON.stringify({
         apiEndpoint: 'POST /devices/register',
         method: 'LAMBDA_FUNCTION',
         description: 'Certificate generation workflow for device registration API',
-        lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/execution-role/arn`,
+        lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+        roleDescription: 'IoT Device Management role with full IoT certificate and thing management permissions',
         steps: [
           {
             step: 1,
@@ -175,7 +176,7 @@ export class CertificateManagementStack extends cdk.Stack {
           privateKey: 'RSA PEM format private key',
           iotEndpoint: iotDataEndpoint
         },
-        note: 'Lambda execution role created in API repository with necessary IoT permissions'
+        note: 'Uses IoT Device Management role created in API repository with comprehensive IoT permissions'
       }),
       'API-specific certificate generation workflow for device registration',
       `/acorn-pups/${props.environment}/iot-core/api-certificate-generation-workflow`
@@ -302,7 +303,8 @@ export class CertificateManagementStack extends cdk.Stack {
       'DeviceResetCertificateCleanupParam',
       JSON.stringify({
         description: 'Certificate cleanup workflow for device reset API',
-        lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/execution-role/arn`,
+        lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+        roleDescription: 'IoT Device Management role with full IoT certificate and thing management permissions',
         steps: [
           {
             step: 1,
@@ -335,44 +337,81 @@ export class CertificateManagementStack extends cdk.Stack {
             description: 'Delete the IoT Thing'
           }
         ],
-        note: 'Uses Lambda execution role created in API repository with necessary IoT permissions'
+        note: 'Uses IoT Device Management role created in API repository with comprehensive IoT permissions'
       }),
       'Certificate cleanup workflow for device reset',
       `/acorn-pups/${props.environment}/iot-core/device-reset-certificate-cleanup`
     );
 
-    // Lambda execution role requirements (documentation only - role created in API repo)
+    // Lambda execution role requirements (documentation only - roles created in API repo)
     this.parameterHelper.createParameter(
       'LambdaIoTPermissionsRequiredParam',
       JSON.stringify({
-        description: 'IoT permissions required for Lambda execution role created in API repository',
+        description: 'IoT permissions and role mapping for Lambda functions created in API repository',
         roleLocation: 'acorn-pups-infrastructure-api repository',
-        roleParameterPath: `/acorn-pups/${props.environment}/lambda-functions/execution-role/arn`,
-        requiredPermissions: [
-          'iot:CreateKeysAndCertificate',
-          'iot:CreateThing',
-          'iot:AttachPolicy',
-          'iot:AttachThingPrincipal',
-          'iot:DetachThingPrincipal',
-          'iot:DetachPolicy',
-          'iot:DeleteThing',
-          'iot:DeleteCertificate',
-          'iot:UpdateCertificate',
-          'iot:DescribeThing',
-          'iot:DescribeCertificate',
-          'iot:ListThingPrincipals',
-          'iot:ListPrincipalThings',
-          'iot:Publish'
-        ],
-        s3Permissions: [
-          's3:GetObject',
-          's3:PutObject', 
-          's3:DeleteObject'
-        ],
-        s3Resource: `${this.certificateBucket.bucketArn}/*`
+        roleStructure: {
+          iotDeviceManagementRole: {
+            path: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+            usedBy: ['register-device', 'reset-device'],
+            permissions: [
+              'iot:CreateKeysAndCertificate',
+              'iot:DeleteCertificate',
+              'iot:UpdateCertificate',
+              'iot:DescribeCertificate',
+              'iot:CreateThing',
+              'iot:DeleteThing',
+              'iot:DescribeThing',
+              'iot:UpdateThing',
+              'iot:AttachPolicy',
+              'iot:DetachPolicy',
+              'iot:AttachThingPrincipal',
+              'iot:DetachThingPrincipal',
+              'iot:ListThingPrincipals',
+              'iot:ListPrincipalThings',
+              'iot:DescribeEndpoint',
+              'iot:Publish'
+            ]
+          },
+          iotCommunicationRole: {
+            path: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
+            usedBy: ['update-device-settings'],
+            permissions: [
+              'iot:Publish',
+              'iot:DescribeEndpoint'
+            ]
+          },
+          notificationRole: {
+            path: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
+            usedBy: ['handle-button-press', 'invite-user'],
+            permissions: [
+              'sns:Publish',
+              'ses:SendEmail'
+            ]
+          },
+          baseLambdaRole: {
+            path: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
+            usedBy: ['update-device-status', 'get-user-devices', 'health-check'],
+            permissions: [
+              'dynamodb operations only'
+            ]
+          }
+        },
+        s3Permissions: {
+          resource: `${this.certificateBucket.bucketArn}/*`,
+          actions: [
+            's3:GetObject',
+            's3:PutObject', 
+            's3:DeleteObject'
+          ],
+          appliesTo: 'iotDeviceManagementRole only'
+        },
+        legacyCompatibility: {
+          path: `/acorn-pups/${props.environment}/lambda-functions/execution-role/arn`,
+          note: 'Points to baseLambdaRole for backward compatibility'
+        }
       }),
-      'IoT permissions required for Lambda execution role (created in API repo)',
-      `/acorn-pups/${props.environment}/iot-core/lambda-iot-permissions-required`
+      'IoT permissions and role mapping for Lambda functions (created in API repo)',
+      `/acorn-pups/${props.environment}/iot-core/lambda-role-mapping`
     );
   }
 } 

@@ -304,7 +304,7 @@ export class IotRulesStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/rule-configuration`
     );
 
-    // Lambda function requirements for IoT rules
+    // Lambda function requirements for IoT rules with role mapping
     this.parameterHelper.createParameter(
       'LambdaFunctionRequirementsParam',
       JSON.stringify({
@@ -313,28 +313,44 @@ export class IotRulesStack extends cdk.Stack {
           inputData: 'deviceId, buttonRfId, timestamp, batteryLevel',
           outputAction: 'Send push notifications to all authorized users',
           databaseAccess: 'DeviceUsers table (read-only)',
-          noStorage: 'No persistent storage of button events for MVP'
+          noStorage: 'No persistent storage of button events for MVP',
+          lambdaRole: 'notificationRole',
+          roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
+          iotRuleTrigger: 'acorn-pups/button-press/+',
+          permissions: ['SNS publish', 'DynamoDB read', 'Parameter Store read']
         },
         updateDeviceStatus: {
           purpose: 'Process and store device status updates',
           inputData: 'deviceId, statusType, timestamp, device metrics',
           outputAction: 'Update DeviceStatus table',
-          databaseAccess: 'DeviceStatus table (write), Devices table (update)'
+          databaseAccess: 'DeviceStatus table (write), Devices table (update)',
+          lambdaRole: 'baseLambdaRole',
+          roleArn: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
+          iotRuleTrigger: 'acorn-pups/status/+',
+          permissions: ['DynamoDB read/write', 'Parameter Store read']
         },
         resetDevice: {
           purpose: 'Handle device factory reset commands',
           inputData: 'deviceId, resetReason, timestamp',
           outputAction: 'Clean up device data and certificates',
-          databaseAccess: 'All device-related tables (cleanup)'
+          databaseAccess: 'All device-related tables (cleanup)',
+          lambdaRole: 'iotDeviceManagementRole',
+          roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+          iotRuleTrigger: 'acorn-pups/commands/+/reset',
+          permissions: ['Full IoT management', 'DynamoDB read/write', 'S3 access', 'Parameter Store read']
         },
         updateDeviceSettings: {
           purpose: 'Process settings updates from API and device acknowledgments',
           inputData: 'deviceId, settings, timestamp',
           outputAction: 'Update database and publish to device MQTT topic',
-          databaseAccess: 'Devices table (update), publish to MQTT'
+          databaseAccess: 'Devices table (update), publish to MQTT',
+          lambdaRole: 'iotCommunicationRole',
+          roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
+          iotRuleTrigger: 'acorn-pups/settings/+/ack',
+          permissions: ['IoT publish', 'DynamoDB read/write', 'Parameter Store read']
         }
       }),
-      'Lambda function requirements for IoT rules',
+      'Lambda function requirements and role mapping for IoT rules',
       `/acorn-pups/${props.environment}/iot-core/lambda-function-requirements`
     );
 
@@ -358,36 +374,88 @@ export class IotRulesStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/log-group-prefix`
     );
 
-    // API integration mapping
+    // API integration mapping with granular role structure
     this.parameterHelper.createParameter(
       'ApiRuleIntegrationParam',
       JSON.stringify({
-        apiEndpoints: {
+        description: 'Complete integration mapping between API endpoints, IoT rules, Lambda functions, and roles',
+        apiToIoTFlow: {
           'PUT /devices/{deviceId}/settings': {
-            mqttTopic: 'acorn-pups/settings/{deviceId}',
-            rule: 'deviceSettingsAck',
-            flow: 'API -> Lambda -> MQTT -> Device -> MQTT (ack) -> Lambda -> Database'
+            apiFunction: 'update-device-settings',
+            apiRole: 'iotCommunicationRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
+            publishToMqtt: 'acorn-pups/settings/{deviceId}',
+            deviceResponse: 'acorn-pups/settings/{deviceId}/ack',
+            iotRule: 'deviceSettingsAck',
+            ruleFunction: 'update-device-settings',
+            ruleRole: 'iotCommunicationRole',
+            flow: 'API -> Lambda (IoT Comm Role) -> MQTT -> Device -> MQTT (ack) -> Lambda (IoT Comm Role) -> Database',
+            permissions: 'IoT publish, DynamoDB read/write'
           },
           'POST /devices/{deviceId}/reset': {
-            mqttTopic: 'acorn-pups/commands/{deviceId}/reset',
-            rule: 'deviceReset',
-            flow: 'API -> Lambda -> MQTT -> Device -> MQTT (ack) -> Lambda -> Database'
+            apiFunction: 'reset-device',
+            apiRole: 'iotDeviceManagementRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+            publishToMqtt: 'acorn-pups/commands/{deviceId}/reset',
+            iotRule: 'deviceReset',
+            ruleFunction: 'reset-device',
+            ruleRole: 'iotDeviceManagementRole',
+            flow: 'API -> Lambda (IoT Device Mgmt Role) -> MQTT -> Device -> MQTT (ack) -> Lambda (IoT Device Mgmt Role) -> Cleanup',
+            permissions: 'Full IoT management, certificate cleanup, DynamoDB read/write, S3 access'
+          },
+          'POST /devices/register': {
+            apiFunction: 'register-device',
+            apiRole: 'iotDeviceManagementRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+            iotOperations: 'Certificate generation, Thing creation, Policy attachment',
+            flow: 'API -> Lambda (IoT Device Mgmt Role) -> IoT certificate/thing creation -> Database',
+            permissions: 'Full IoT management, certificate generation, DynamoDB read/write, S3 backup'
           }
         },
-        deviceToCloud: {
+        deviceToCloudFlow: {
           'RF button press': {
-            mqttTopic: 'acorn-pups/button-press/{deviceId}',
-            rule: 'buttonPress',
-            flow: 'Device -> MQTT -> Lambda -> SNS -> Mobile App'
+            devicePublish: 'acorn-pups/button-press/{deviceId}',
+            iotRule: 'buttonPress',
+            lambdaFunction: 'handle-button-press',
+            lambdaRole: 'notificationRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
+            flow: 'Device -> MQTT -> IoT Rule -> Lambda (Notification Role) -> SNS -> Mobile App',
+            permissions: 'SNS publish, DynamoDB read (user lookup)'
           },
-          'Device status': {
-            mqttTopic: 'acorn-pups/status/{deviceId}',
-            rule: 'deviceStatus',
-            flow: 'Device -> MQTT -> Lambda -> DynamoDB'
+          'Device status update': {
+            devicePublish: 'acorn-pups/status/{deviceId}',
+            iotRule: 'deviceStatus',
+            lambdaFunction: 'update-device-status',
+            lambdaRole: 'baseLambdaRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
+            flow: 'Device -> MQTT -> IoT Rule -> Lambda (Base Role) -> DynamoDB',
+            permissions: 'DynamoDB read/write only'
+          }
+        },
+        rolePermissionMapping: {
+          iotDeviceManagementRole: {
+            functions: ['register-device', 'reset-device'],
+            permissions: 'Full IoT certificate and Thing management, S3 certificate backup, DynamoDB access',
+            useCases: 'Device lifecycle management, certificate operations, factory reset'
+          },
+          iotCommunicationRole: {
+            functions: ['update-device-settings'],
+            permissions: 'IoT publish to device topics, DynamoDB access',
+            useCases: 'Real-time device configuration updates'
+          },
+          notificationRole: {
+            functions: ['handle-button-press', 'invite-user'],
+            permissions: 'SNS publish, SES email sending, DynamoDB access',
+            useCases: 'Push notifications, email invitations'
+          },
+          baseLambdaRole: {
+            functions: ['update-device-status', 'get-user-devices', 'health-check', 'user management'],
+            permissions: 'DynamoDB access, Parameter Store access only',
+            useCases: 'Basic CRUD operations, data retrieval'
           }
         }
       }),
-      'API and device integration mapping for IoT rules',
+      'Complete API and device integration mapping with granular role structure',
       `/acorn-pups/${props.environment}/iot-core/api-rule-integration`
     );
   }
