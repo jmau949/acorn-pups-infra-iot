@@ -40,6 +40,55 @@ export interface IotRule {
   errorAction?: any;
 }
 
+// API-specific types based on OpenAPI specification
+export interface DeviceRegistrationRequest {
+  deviceId: string;
+  deviceName: string;
+  serialNumber: string;
+  macAddress: string;
+}
+
+export interface DeviceRegistrationResponse {
+  deviceId: string;
+  deviceName: string;
+  serialNumber: string;
+  ownerId: string;
+  registeredAt: string;
+  status: 'pending' | 'active';
+  certificates: {
+    deviceCertificate: string;
+    privateKey: string;
+    iotEndpoint: string;
+  };
+}
+
+export interface DeviceSettingsRequest {
+  soundEnabled?: boolean;
+  soundVolume?: number;
+  ledBrightness?: number;
+  notificationCooldown?: number;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
+}
+
+export interface UserInviteRequest {
+  email: string;
+  notificationsPermission?: boolean;
+  settingsPermission?: boolean;
+}
+
+export interface UserInviteResponse {
+  invitationId: string;
+  email: string;
+  deviceId: string;
+  deviceName: string;
+  notificationsPermission: boolean;
+  settingsPermission: boolean;
+  expiresAt: string;
+  sentAt: string;
+}
+
 export interface DeviceAttributes {
   deviceId: string;
   serialNumber: string;
@@ -52,6 +101,9 @@ export interface DeviceAttributes {
   deviceType: 'ESP32_RECEIVER';
   isOnline: boolean;
   lastSeen: string;
+  ownerId: string;
+  registeredAt: string;
+  status: 'pending' | 'active' | 'inactive';
 }
 
 export interface DeviceSettings {
@@ -62,6 +114,23 @@ export interface DeviceSettings {
   quietHoursEnabled: boolean;
   quietHoursStart: string;
   quietHoursEnd: string;
+}
+
+export interface DevicePermissions {
+  notifications: boolean;
+  settings: boolean;
+}
+
+export interface Device {
+  deviceId: string;
+  deviceName: string;
+  serialNumber: string;
+  isOnline: boolean;
+  lastSeen: string;
+  registeredAt: string;
+  firmwareVersion: string;
+  settings: DeviceSettings;
+  permissions: DevicePermissions;
 }
 
 export interface ButtonPressEvent {
@@ -90,16 +159,20 @@ export interface IotTopicTemplates {
   buttonPress: string;
   status: string;
   settings: string;
+  settingsAck: string;
   commands: string;
   commandsReset: string;
+  firmware: string;
 }
 
 export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
   buttonPress: 'acorn-pups/button-press/+',
   status: 'acorn-pups/status/+',
   settings: 'acorn-pups/settings/+',
+  settingsAck: 'acorn-pups/settings/+/ack',
   commands: 'acorn-pups/commands/+',
   commandsReset: 'acorn-pups/commands/+/reset',
+  firmware: 'acorn-pups/firmware/+',
 };
 
 export const IOT_CLIENT_ID_PATTERN = 'acorn-receiver-*';
@@ -108,6 +181,15 @@ export const LAMBDA_FUNCTIONS = {
   handleButtonPress: 'handleButtonPress',
   updateDeviceStatus: 'updateDeviceStatus',
   resetDevice: 'resetDevice',
+  registerDevice: 'registerDevice',
+  updateDeviceSettings: 'updateDeviceSettings',
+  inviteUser: 'inviteUser',
+  acceptInvitation: 'acceptInvitation',
+  declineInvitation: 'declineInvitation',
+  removeUserAccess: 'removeUserAccess',
+  getUserDevices: 'getUserDevices',
+  getUserInvitations: 'getUserInvitations',
+  healthCheck: 'healthCheck',
 };
 
 export const DYNAMODB_TABLES = {
@@ -126,4 +208,182 @@ export interface DeviceCertificateConfig {
   thingTypeName: string;
   validityPeriod: number;
   certificateStatus: 'ACTIVE' | 'INACTIVE';
+}
+
+// API Response types
+export interface ApiResponse<T> {
+  data: T;
+  requestId: string;
+}
+
+export interface ApiError {
+  error: string;
+  message: string;
+  requestId: string;
+  validationErrors?: Array<{
+    field: string;
+    message: string;
+  }>;
+}
+
+export interface HealthCheckResponse {
+  status: 'healthy' | 'unhealthy';
+  timestamp: string;
+  environment: string;
+  version: string;
+  region: string;
+  checks: {
+    api: boolean;
+    lambda: boolean;
+    dynamodb: boolean;
+  };
+}
+
+// MQTT message types
+export interface MqttButtonPressMessage {
+  deviceId: string;
+  buttonRfId: string;
+  timestamp: string;
+  batteryLevel?: number;
+}
+
+export interface MqttDeviceStatusMessage {
+  deviceId: string;
+  statusType: string;
+  timestamp: string;
+  isOnline: boolean;
+  signalStrength?: number;
+  memoryUsage?: number;
+  cpuTemperature?: number;
+  uptime?: number;
+  errorCount?: number;
+  lastErrorMessage?: string;
+  firmwareVersion?: string;
+}
+
+export interface MqttDeviceSettingsMessage {
+  soundEnabled: boolean;
+  soundVolume: number;
+  ledBrightness: number;
+  notificationCooldown: number;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+}
+
+export interface MqttDeviceResetMessage {
+  deviceId: string;
+  reason: string;
+  timestamp: string;
+}
+
+// IoT Core certificate management
+export interface CertificateInfo {
+  certificateArn: string;
+  certificateId: string;
+  certificatePem: string;
+  keyPair: {
+    publicKey: string;
+    privateKey: string;
+  };
+  iotEndpoint: string;
+}
+
+// Database table schemas (based on technical documentation)
+export interface UsersTableItem {
+  PK: string; // USER#{user_id}
+  SK: string; // PROFILE
+  user_id: string;
+  email: string;
+  cognito_sub: string;
+  full_name: string;
+  phone?: string;
+  timezone: string;
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
+  is_active: boolean;
+  push_notifications: boolean;
+  preferred_language: string;
+  sound_alerts: boolean;
+  vibration_alerts: boolean;
+}
+
+export interface DevicesTableItem {
+  PK: string; // DEVICE#{device_id}
+  SK: string; // METADATA | SETTINGS
+  device_id: string;
+  serial_number: string;
+  mac_address: string;
+  device_name: string;
+  owner_user_id: string;
+  firmware_version: string;
+  hardware_version: string;
+  is_online: boolean;
+  last_seen: string;
+  wifi_ssid: string;
+  signal_strength: number;
+  created_at: string;
+  updated_at: string;
+  is_active: boolean;
+  // Settings fields
+  sound_enabled: boolean;
+  sound_volume: number;
+  led_brightness: number;
+  notification_cooldown: number;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+}
+
+export interface DeviceUsersTableItem {
+  PK: string; // DEVICE#{device_id}
+  SK: string; // USER#{user_id}
+  device_id: string;
+  user_id: string;
+  notifications_permission: boolean;
+  settings_permission: boolean;
+  notifications_enabled: boolean;
+  notification_sound: string;
+  notification_vibration: boolean;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  custom_notification_sound?: string;
+  device_nickname?: string;
+  invited_by: string;
+  invited_at: string;
+  accepted_at: string;
+  is_active: boolean;
+}
+
+export interface InvitationsTableItem {
+  PK: string; // INVITATION#{invitation_id}
+  SK: string; // METADATA
+  invitation_id: string;
+  device_id: string;
+  invited_email: string;
+  invited_by: string;
+  invitation_token: string;
+  expires_at: string;
+  created_at: string;
+  accepted_at?: string;
+  is_accepted: boolean;
+  is_expired: boolean;
+}
+
+export interface DeviceStatusTableItem {
+  PK: string; // DEVICE#{device_id}
+  SK: string; // STATUS#{status_type}
+  device_id: string;
+  status_type: string;
+  timestamp: string;
+  signal_strength?: number;
+  is_online: boolean;
+  memory_usage?: number;
+  cpu_temperature?: number;
+  uptime?: number;
+  error_count?: number;
+  last_error_message?: string;
+  firmware_version?: string;
 } 
