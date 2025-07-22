@@ -104,6 +104,14 @@ export class MonitoringStack extends cdk.Stack {
                   RuleName: `AcornPupsDeviceReset_${props.environment}`
                 },
                 statistic: 'Sum'
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/IoT',
+                metricName: 'RuleExecution',
+                dimensionsMap: {
+                  RuleName: `AcornPupsFactoryReset_${props.environment}`
+                },
+                statistic: 'Sum'
               })
             ],
             width: 12,
@@ -268,7 +276,8 @@ export class MonitoringStack extends cdk.Stack {
           rules: [
             `AcornPupsButtonPress_${props.environment}`,
             `AcornPupsDeviceStatus_${props.environment}`,
-            `AcornPupsDeviceReset_${props.environment}`
+            `AcornPupsDeviceReset_${props.environment}`,
+            `AcornPupsFactoryReset_${props.environment}`
           ]
         }
       }),

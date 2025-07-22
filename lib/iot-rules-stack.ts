@@ -39,6 +39,12 @@ export class IotRulesStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/lambda-functions/resetDevice/arn`
     );
 
+    const factoryResetLambdaArnParam = ssm.StringParameter.fromStringParameterName(
+      this,
+      'FactoryResetLambdaArnParam',
+      `/acorn-pups/${props.environment}/lambda-functions/factoryReset/arn`
+    );
+
     const updateDeviceSettingsLambdaArnParam = ssm.StringParameter.fromStringParameterName(
       this,
       'UpdateDeviceSettingsLambdaArnParam',
@@ -225,6 +231,51 @@ export class IotRulesStack extends cdk.Stack {
       ]
     });
 
+    // Factory Reset Rule - Routes factory reset notifications from ESP32 receivers to Lambda
+    this.rules.factoryReset = new iot.CfnTopicRule(this, 'FactoryResetRule', {
+      ruleName: `AcornPupsFactoryReset_${props.environment}`,
+      topicRulePayload: {
+        sql: "SELECT *, topic(3) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/reset/+'",
+        description: 'Route factory reset notifications from ESP32 receivers to factoryReset Lambda function for cleanup',
+        actions: [
+          {
+            lambda: {
+              functionArn: factoryResetLambdaArnParam.stringValue
+            }
+          }
+        ],
+        errorAction: {
+          cloudwatchLogs: {
+            logGroupName: `/aws/iot/rules/AcornPupsFactoryReset_${props.environment}`,
+            roleArn: props.roleArn
+          }
+        },
+        ruleDisabled: false
+      },
+      tags: [
+        {
+          key: 'Project',
+          value: 'acorn-pups'
+        },
+        {
+          key: 'Environment',
+          value: props.environment
+        },
+        {
+          key: 'Service',
+          value: 'IoT-Core'
+        },
+        {
+          key: 'Component',
+          value: 'Rule'
+        },
+        {
+          key: 'RuleType',
+          value: 'FactoryReset'
+        }
+      ]
+    });
+
     // Store rule information in Parameter Store
     Object.entries(this.rules).forEach(([name, rule]) => {
       this.parameterHelper.createParameter(
@@ -271,6 +322,13 @@ export class IotRulesStack extends cdk.Stack {
       `AcornPupsDeviceSettingsAckRuleArn-${props.environment}`
     );
 
+    this.parameterHelper.createOutputWithParameter(
+      'FactoryResetRuleArnOutput',
+      this.rules.factoryReset.attrArn,
+      'ARN of the Factory Reset IoT Rule',
+      `AcornPupsFactoryResetRuleArn-${props.environment}`
+    );
+
     // Additional rule configuration parameters
     this.parameterHelper.createParameter(
       'RuleConfigurationParam',
@@ -298,6 +356,12 @@ export class IotRulesStack extends cdk.Stack {
           description: 'Process settings acknowledgments from ESP32 receivers',
           lambdaFunction: 'updateDeviceSettings',
           processing: 'ACKNOWLEDGMENT'
+        },
+        factoryReset: {
+          topic: 'acorn-pups/reset/+',
+          description: 'Process factory reset notifications and cleanup AWS resources',
+          lambdaFunction: 'factoryReset',
+          processing: 'CLEANUP'
         }
       }),
       'IoT Rule configuration details',
@@ -348,6 +412,16 @@ export class IotRulesStack extends cdk.Stack {
           roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
           iotRuleTrigger: 'acorn-pups/settings/+/ack',
           permissions: ['IoT publish', 'DynamoDB read/write', 'Parameter Store read']
+        },
+        factoryReset: {
+          purpose: 'Process factory reset notifications from devices and cleanup AWS resources',
+          inputData: 'deviceId, resetTimestamp, oldCertificateArn, reason',
+          outputAction: 'Revoke certificates, delete IoT Things, cleanup database records',
+          databaseAccess: 'All device-related tables (cleanup), DeviceUsers, Invitations',
+          lambdaRole: 'iotDeviceManagementRole',
+          roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+          iotRuleTrigger: 'acorn-pups/reset/+',
+          permissions: ['Full IoT management', 'Certificate revocation', 'DynamoDB read/write', 'Parameter Store read']
         }
       }),
       'Lambda function requirements and role mapping for IoT rules',
@@ -361,7 +435,8 @@ export class IotRulesStack extends cdk.Stack {
         buttonPress: 'acorn-pups/button-press/+',
         deviceStatus: 'acorn-pups/status/+',
         deviceReset: 'acorn-pups/commands/+/reset',
-        deviceSettingsAck: 'acorn-pups/settings/+/ack'
+        deviceSettingsAck: 'acorn-pups/settings/+/ack',
+        factoryReset: 'acorn-pups/reset/+'
       }),
       'MQTT topics monitored by IoT Rules',
       `/acorn-pups/${props.environment}/iot-core/rule-topics`
@@ -430,13 +505,22 @@ export class IotRulesStack extends cdk.Stack {
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
             flow: 'Device -> MQTT -> IoT Rule -> Lambda (Base Role) -> DynamoDB',
             permissions: 'DynamoDB read/write only'
+          },
+          'Factory reset notification': {
+            devicePublish: 'acorn-pups/reset/{deviceId}',
+            iotRule: 'factoryReset',
+            lambdaFunction: 'factory-reset',
+            lambdaRole: 'iotDeviceManagementRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+            flow: 'Device -> MQTT -> IoT Rule -> Lambda (IoT Device Mgmt Role) -> Certificate Cleanup -> Database Cleanup',
+            permissions: 'Full IoT management, certificate revocation, DynamoDB read/write'
           }
         },
         rolePermissionMapping: {
           iotDeviceManagementRole: {
-            functions: ['register-device', 'reset-device'],
+            functions: ['register-device', 'reset-device', 'factory-reset'],
             permissions: 'Full IoT certificate and Thing management, S3 certificate backup, DynamoDB access',
-            useCases: 'Device lifecycle management, certificate operations, factory reset'
+            useCases: 'Device lifecycle management, certificate operations, factory reset cleanup'
           },
           iotCommunicationRole: {
             functions: ['update-device-settings'],

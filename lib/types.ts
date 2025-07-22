@@ -181,6 +181,7 @@ export const LAMBDA_FUNCTIONS = {
   handleButtonPress: 'handleButtonPress',
   updateDeviceStatus: 'updateDeviceStatus',
   resetDevice: 'resetDevice',
+  factoryReset: 'factoryReset',
   registerDevice: 'registerDevice',
   updateDeviceSettings: 'updateDeviceSettings',
   inviteUser: 'inviteUser',

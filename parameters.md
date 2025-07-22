@@ -25,7 +25,7 @@ This document lists all Parameter Store parameters used and created by this repo
 The API repository now uses granular IAM roles instead of a single execution role:
 
 ### **IoT Device Management Role** (`iot-device-mgmt-role`)
-- **Used by**: `register-device`, `reset-device`
+- **Used by**: `register-device`, `reset-device`, `factory-reset`
 - **Permissions**: Full IoT certificate and Thing management, S3 certificate backup, DynamoDB access
 - **Parameter Path**: `/acorn-pups/{environment}/lambda-functions/iot-device-mgmt-role/arn`
 

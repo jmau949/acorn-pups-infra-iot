@@ -53,6 +53,7 @@ The IoT Rules stack requires Lambda functions to be deployed first. Verify these
 aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/handleButtonPress/arn"
 aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/updateDeviceStatus/arn"
 aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/resetDevice/arn"
+aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/factoryReset/arn"
 ```
 
 If these don't exist, deploy the API infrastructure first.
@@ -171,6 +172,9 @@ aws iot publish --topic "acorn-pups/button-press/test-device" --payload '{"devic
 
 # Test status update rule  
 aws iot publish --topic "acorn-pups/status/test-device" --payload '{"deviceId": "test-device", "status": "online", "firmwareVersion": "1.0.0"}'
+
+# Test factory reset rule
+aws iot publish --topic "acorn-pups/reset/test-device" --payload '{"command": "reset_cleanup", "deviceId": "test-device", "resetTimestamp": "2024-01-01T12:00:00Z", "oldCertificateArn": "arn:aws:iot:us-east-1:123456789012:cert/example", "reason": "physical_button_reset"}'
 ```
 
 ### 4. View CloudWatch Dashboard
@@ -196,6 +200,7 @@ aws logs describe-log-streams --log-group-name "/aws/iot/rules/AcornPupsButtonPr
    - `/acorn-pups/{environment}/lambda-functions/handleButtonPress/arn`
    - `/acorn-pups/{environment}/lambda-functions/updateDeviceStatus/arn`  
    - `/acorn-pups/{environment}/lambda-functions/resetDevice/arn`
+   - `/acorn-pups/{environment}/lambda-functions/factoryReset/arn`
 
 ### Issue: Certificate Management Stack Errors
 **Symptom**: Certificate stack fails to deploy or CA certificate issues.
