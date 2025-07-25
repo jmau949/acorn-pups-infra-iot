@@ -2,6 +2,17 @@
 
 This guide provides step-by-step instructions for deploying the Acorn Pups IoT infrastructure using AWS CDK.
 
+## Repository Structure
+
+The Acorn Pups IoT infrastructure is split across multiple repositories to maintain clean separation of concerns:
+
+1. **acorn-pups-infra-db** - Database tables and core data infrastructure
+2. **acorn-pups-infra-cognito** - Authentication and user management
+3. **acorn-pups-infra-api** - Lambda functions, API Gateway, and **IoT policies**
+4. **acorn-pups-infra-iot** - IoT rules, thing types, and monitoring (this repository)
+
+**Important**: IoT policies and device management are now handled in the API repository alongside certificate generation to avoid circular dependencies.
+
 ## Prerequisites Checklist
 
 Before deploying, ensure you have:
@@ -10,7 +21,9 @@ Before deploying, ensure you have:
 - [ ] **AWS CDK** v2 installed globally (`npm install -g aws-cdk`)
 - [ ] **AWS CLI** configured with appropriate credentials
 - [ ] **PowerShell** (for Windows deployment scripts)
-- [ ] **API Infrastructure** deployed first (contains required Lambda functions)
+- [ ] **Database Infrastructure** deployed first (acorn-pups-infra-db)
+- [ ] **Cognito Infrastructure** deployed second (acorn-pups-infra-cognito)
+- [ ] **API Infrastructure** deployed third (acorn-pups-infra-api) - contains IoT policies
 
 ## Pre-Deployment Setup
 
@@ -47,13 +60,18 @@ aws sts get-caller-identity
 
 ### 4. Validate Existing Infrastructure
 
-The IoT Rules stack requires Lambda functions to be deployed first. Verify these Parameter Store entries exist:
+This IoT repository requires the API infrastructure to be deployed first. Verify these Parameter Store entries exist:
 
 ```powershell
+# Lambda function ARNs (created by API repository)
 aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/handleButtonPress/arn"
 aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/updateDeviceStatus/arn"
 aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/resetDevice/arn"
 aws ssm get-parameter --name "/acorn-pups/dev/lambda-functions/factoryReset/arn"
+
+# IoT policy and rule execution role (created by API repository)
+aws ssm get-parameter --name "/acorn-pups/dev/iot-core/receiver-policy/arn"
+aws ssm get-parameter --name "/acorn-pups/dev/iot-core/rule-execution-role/arn"
 ```
 
 If these don't exist, deploy the API infrastructure first.
@@ -108,42 +126,46 @@ cdk deploy acorn-pups-iot-dev-thing-types --context environment=dev
 
 ## Deployment Order
 
-The stacks have dependencies and should be deployed in this order:
+The complete system should be deployed in this order across repositories:
 
-1. **Certificate Management Stack** (independent)
-2. **IoT Thing Type Stack** (independent) 
-3. **IoT Policy Stack** (depends on Thing Type)
-4. **IoT Rules Stack** (depends on Policy and Certificate, requires Lambda ARNs)
-5. **Monitoring Stack** (depends on Thing Type and Rules)
+### Cross-Repository Deployment Order
+1. **acorn-pups-infra-db** - Database tables
+2. **acorn-pups-infra-cognito** - Authentication
+3. **acorn-pups-infra-api** - Lambda functions and **IoT policies**
+4. **acorn-pups-infra-iot** - IoT rules and monitoring (this repository)
+
+### This Repository Stack Order
+1. **Certificate Management Stack** (S3 bucket and configuration)
+2. **IoT Thing Type Stack** (ESP32 receiver thing types)
+3. **IoT Rules Stack** (MQTT message routing rules)
+4. **Monitoring Stack** (CloudWatch dashboards and alarms)
 
 The deployment scripts handle these dependencies automatically.
 
 ## Stack Details
 
 ### Certificate Management Stack
-- **Resources**: S3 bucket, CA certificate placeholder, certificate templates
+- **Resources**: S3 bucket for certificate backups, configuration parameters
 - **Dependencies**: None
-- **Outputs**: Certificate bucket name/ARN, CA certificate ARN
+- **Outputs**: Certificate bucket name/ARN, IoT endpoints
+- **Note**: Actual certificate generation is handled by API repository Lambda functions
 
 ### IoT Thing Type Stack  
-- **Resources**: `AcornPupsDevice` Thing Type with searchable attributes
+- **Resources**: `AcornPupsReceiver` Thing Type with searchable attributes
 - **Dependencies**: None
 - **Outputs**: Thing Type name/ARN, searchable attributes
 
-### IoT Policy Stack
-- **Resources**: Device policy, IoT Rules execution role
-- **Dependencies**: Thing Type Stack
-- **Outputs**: Policy name/ARN, execution role ARN
-
 ### IoT Rules Stack
 - **Resources**: 5 IoT Rules for different message types
-- **Dependencies**: Policy Stack, Certificate Stack, Lambda functions in Parameter Store
+- **Dependencies**: Certificate Stack, Thing Type Stack, API repository (for Lambda ARNs and rule execution role)
 - **Outputs**: Rule names/ARNs for all rules
 
 ### Monitoring Stack
 - **Resources**: CloudWatch dashboard, 4 CloudWatch alarms
 - **Dependencies**: Thing Type Stack, Rules Stack
 - **Outputs**: Dashboard name/URL, alarm names/ARNs
+
+**Note**: IoT policies are no longer managed in this repository. They are created in the API repository alongside the Lambda functions that manage device certificates.
 
 ## Post-Deployment Verification
 
@@ -163,6 +185,9 @@ aws ssm get-parameters-by-path --path "/acorn-pups/dev/iot-core" --recursive
 
 # Check specific parameter
 aws ssm get-parameter --name "/acorn-pups/dev/iot-core/thing-type/arn"
+
+# Verify API repository created the IoT policy
+aws ssm get-parameter --name "/acorn-pups/dev/iot-core/receiver-policy/arn"
 ```
 
 ### 3. Test IoT Rules
@@ -202,22 +227,34 @@ aws logs describe-log-streams --log-group-name "/aws/iot/rules/AcornPupsButtonPr
    - `/acorn-pups/{environment}/lambda-functions/resetDevice/arn`
    - `/acorn-pups/{environment}/lambda-functions/factoryReset/arn`
 
+### Issue: IoT Rule Execution Role Not Found
+**Symptom**: IoT Rules stack deployment fails with rule execution role parameter not found.
+
+**Solution**:
+1. Ensure API infrastructure is deployed first
+2. Verify the API repository created the IoT rule execution role:
+   ```powershell
+   aws ssm get-parameter --name "/acorn-pups/dev/iot-core/rule-execution-role/arn"
+   ```
+
+### Issue: IoT Policy Not Found
+**Symptom**: Device registration fails because IoT policy doesn't exist.
+
+**Solution**:
+1. The IoT policy is now created in the API repository, not this one
+2. Verify the policy exists:
+   ```powershell
+   aws iot get-policy --policy-name "AcornPupsReceiverPolicy-dev"
+   ```
+3. If missing, redeploy the API repository
+
 ### Issue: Certificate Management Stack Errors
-**Symptom**: Certificate stack fails to deploy or CA certificate issues.
+**Symptom**: Certificate stack fails to deploy or configuration issues.
 
 **Solution**:
-- The current implementation uses a placeholder CA certificate
-- For production, manually register your CA certificate with AWS IoT Core
-- Update the certificate management stack to reference your actual CA
-
-### Issue: IoT Policy Permissions Denied
-**Symptom**: Devices cannot connect or publish messages.
-
-**Solution**:
-1. Verify device client ID matches pattern `acorn-esp32-*`
-2. Check device certificate is attached to Thing
-3. Verify policy is attached to certificate
-4. Ensure device is using correct MQTT endpoint
+- This stack only creates S3 bucket and configuration parameters
+- Actual certificate generation is handled by API repository Lambda functions
+- For issues with certificate generation, check the API repository logs
 
 ### Issue: CloudWatch Dashboard Empty
 **Symptom**: Dashboard shows no data despite device activity.
@@ -242,10 +279,11 @@ aws logs describe-log-streams --log-group-name "/aws/iot/rules/AcornPupsButtonPr
 - Consider additional IAM restrictions
 
 ### Device Security
-- Each device gets unique X.509 certificate
-- Client ID must match pattern `acorn-esp32-*`
+- Each device gets unique X.509 certificate (managed by API repository)
+- Client ID must match pattern `acorn-pups-*`
 - Device can only access its own topics (`{iot:ClientId}`)
 - Certificate must be attached to Thing for connection
+- IoT policies enforce device-scoped permissions
 
 ## Monitoring and Maintenance
 
@@ -253,11 +291,10 @@ aws logs describe-log-streams --log-group-name "/aws/iot/rules/AcornPupsButtonPr
 - **High Error Rate**: >5% rule execution failures
 - **Device Connectivity**: >10 failed connections in 5 minutes  
 
-
 ### Regular Maintenance Tasks
 1. **Monthly**: Review CloudWatch metrics and logs
-2. **Quarterly**: Update certificate expiration dates
-3. **Annually**: Review and update security policies
+2. **Quarterly**: Update certificate expiration dates (via API repository)
+3. **Annually**: Review and update security policies (in API repository)
 4. **As Needed**: Scale monitoring thresholds based on fleet size
 
 ### Cost Optimization
@@ -270,7 +307,7 @@ aws logs describe-log-streams --log-group-name "/aws/iot/rules/AcornPupsButtonPr
 
 ### Development Environment
 ```powershell
-# Destroy all stacks
+# Destroy all stacks in this repository
 .\scripts\deploy.ps1 -Environment dev -Action destroy -Force
 
 # Or use CDK directly
@@ -286,7 +323,10 @@ cdk destroy --all --context environment=dev --force
 aws cloudformation list-stacks --query 'StackSummaries[?contains(StackName, `acorn-pups-iot-prod`)].{Name:StackName,Status:StackStatus}'
 ```
 
-**Note**: S3 buckets in production are retained by default and must be manually deleted.
+**Note**: 
+- S3 buckets in production are retained by default and must be manually deleted
+- IoT policies are managed in the API repository and must be cleaned up there
+- Destroying this repository does not affect device certificates or policies
 
 ## Troubleshooting Commands
 
@@ -301,7 +341,10 @@ aws cloudformation describe-stack-events --stack-name acorn-pups-iot-dev-rules
 aws iot describe-endpoint --endpoint-type iot:Data-ATS
 
 # List IoT Things
-aws iot list-things --thing-type-name AcornPupsDevice-dev
+aws iot list-things --thing-type-name AcornPupsReceiver-dev
+
+# Check IoT policies (managed in API repository)
+aws iot list-policies --query 'policies[?contains(policyName, `AcornPupsReceiver`)].{Name:policyName,Arn:policyArn}'
 
 # Test MQTT connection
 aws iot test-invoke-authorizer --authorizer-name your-authorizer --token your-token
@@ -322,56 +365,67 @@ aws iot test-invoke-authorizer --authorizer-name your-authorizer --token your-to
 
 ### AWS IoT Core Managed Certificates
 
-The infrastructure uses AWS IoT Core's built-in certificate generation, which is simpler and more reliable than managing custom Certificate Authorities.
+The infrastructure uses AWS IoT Core's built-in certificate generation, which is handled entirely by the API repository Lambda functions.
 
-#### Certificate Generation Process
+#### Certificate Generation Process (API Repository)
 
-1. **Create Device Certificate**:
-   ```bash
-   aws iot create-keys-and-certificate --set-as-active --output json > device-cert.json
-   ```
+The API repository handles all certificate operations through Lambda functions:
 
-2. **Extract Certificate Information**:
-   ```bash
-   # Get certificate ARN
-   CERT_ARN=$(jq -r '.certificateArn' device-cert.json)
-   
-   # Get certificate ID
-   CERT_ID=$(jq -r '.certificateId' device-cert.json)
-   
-   # Save certificate and keys
-   jq -r '.certificatePem' device-cert.json > device-cert.pem
-   jq -r '.keyPair.PrivateKey' device-cert.json > device-private-key.pem
-   jq -r '.keyPair.PublicKey' device-cert.json > device-public-key.pem
-   ```
+1. **Device Registration API**: `POST /devices/register`
+   - Creates AWS-managed X.509 certificate
+   - Creates IoT Thing with device metadata
+   - Attaches policy to certificate
+   - Attaches certificate to Thing
+   - Stores certificate backup in S3
 
-3. **Download Amazon Root CA**:
-   ```bash
-   curl https://www.amazontrust.com/repository/AmazonRootCA1.pem -o AmazonRootCA1.pem
-   ```
-
-4. **Create and Configure IoT Thing**:
-   ```bash
-   # Create IoT Thing
-   aws iot create-thing --thing-name "acorn-esp32-device-001" --thing-type-name "AcornPupsDevice-dev"
-   
-   # Attach policy to certificate
-   aws iot attach-policy --policy-name "AcornPupsDevicePolicy-dev" --target "$CERT_ARN"
-   
-   # Attach certificate to Thing
-   aws iot attach-thing-principal --thing-name "acorn-esp32-device-001" --principal "$CERT_ARN"
-   ```
+2. **Device Reset API**: `POST /devices/{deviceId}/reset`
+   - Lists and detaches certificates from Thing
+   - Detaches policies from certificates
+   - Deactivates and deletes certificates
+   - Deletes IoT Thing
+   - Cleans up S3 backups
 
 #### Device Configuration
 
-Configure your ESP32 device with:
-- **Device Certificate**: `device-cert.pem`
-- **Private Key**: `device-private-key.pem` (keep secure!)
-- **Root CA**: `AmazonRootCA1.pem`
-- **IoT Endpoint**: Retrieved from Parameter Store or CloudFormation outputs
+When a device is registered via the API, it receives:
+- **Device Certificate**: X.509 PEM format
+- **Private Key**: RSA PEM format (keep secure!)
+- **IoT Endpoint**: AWS IoT Core data endpoint
+
+The device also needs:
+- **Root CA**: Download from https://www.amazontrust.com/repository/AmazonRootCA1.pem
 
 #### Certificate Storage
 
-- Certificates are stored in the S3 bucket: `acorn-pups-certificates-{environment}-{account-id}`
-- The bucket has versioning enabled and lifecycle policies for cleanup
-- All certificate metadata is stored in Parameter Store for easy access 
+- Certificate backups are stored in: `acorn-pups-certificates-{environment}-{account-id}`
+- The S3 bucket (created by this repository) has versioning and lifecycle policies
+- Certificate metadata is accessible via Parameter Store
+- Actual certificate management is handled by API repository Lambda functions
+
+#### Manual Certificate Operations (Development Only)
+
+For development and testing, you can manually create certificates:
+
+```bash
+# Create device certificate
+aws iot create-keys-and-certificate --set-as-active --output json > device-cert.json
+
+# Extract certificate information
+CERT_ARN=$(jq -r '.certificateArn' device-cert.json)
+CERT_ID=$(jq -r '.certificateId' device-cert.json)
+
+# Save certificate files
+jq -r '.certificatePem' device-cert.json > device-cert.pem
+jq -r '.keyPair.PrivateKey' device-cert.json > device-private-key.pem
+
+# Create IoT Thing
+aws iot create-thing --thing-name "acorn-pups-device-001" --thing-type-name "AcornPupsReceiver-dev"
+
+# Attach policy (created by API repository)
+aws iot attach-policy --policy-name "AcornPupsReceiverPolicy-dev" --target "$CERT_ARN"
+
+# Attach certificate to Thing
+aws iot attach-thing-principal --thing-name "acorn-pups-device-001" --principal "$CERT_ARN"
+```
+
+**Note**: In production, always use the API endpoints for device management to ensure proper cleanup and security. 

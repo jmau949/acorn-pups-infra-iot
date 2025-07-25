@@ -16,9 +16,7 @@ export interface IotPolicyStackProps extends BaseIotStackProps {
   thingTypeName: string;
 }
 
-export interface IotRulesStackProps extends BaseIotStackProps {
-  roleArn: string;
-}
+export interface IotRulesStackProps extends BaseIotStackProps {}
 
 export interface CertificateManagementStackProps extends BaseIotStackProps {}
 

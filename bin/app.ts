@@ -2,7 +2,6 @@
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
 import { IotThingTypeStack } from '../lib/iot-thing-type-stack';
-import { IotPolicyStack } from '../lib/iot-policy-stack';
 import { IotRulesStack } from '../lib/iot-rules-stack';
 import { CertificateManagementStack } from '../lib/certificate-management-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
@@ -45,7 +44,7 @@ if (!envConfig) {
 // Stack naming convention
 const stackPrefix = `acorn-pups-iot-${environment}`;
 
-// Certificate Management Stack (must be first, as others depend on it)
+// Certificate Management Stack (stores S3 bucket and configuration parameters)
 const certificateStack = new CertificateManagementStack(app, `${stackPrefix}-certificates`, {
   env,
   environment,
@@ -59,19 +58,10 @@ const thingTypeStack = new IotThingTypeStack(app, `${stackPrefix}-thing-types`, 
   ...envConfig,
 });
 
-// IoT Policy Stack (depends on Thing Type)
-const policyStack = new IotPolicyStack(app, `${stackPrefix}-policies`, {
-  env,
-  environment,
-  thingTypeName: thingTypeStack.acornPupsReceiverThingType.thingTypeName!,
-  ...envConfig,
-});
-
-// IoT Rules Stack (depends on Policy and Certificate stacks for ARNs)
+// IoT Rules Stack (references IoT rule execution role from API repository)
 const rulesStack = new IotRulesStack(app, `${stackPrefix}-rules`, {
   env,
   environment,
-  roleArn: policyStack.iotRuleExecutionRole.roleArn,
   ...envConfig,
 });
 
@@ -85,9 +75,9 @@ const monitoringStack = new MonitoringStack(app, `${stackPrefix}-monitoring`, {
 });
 
 // Add dependencies to ensure proper deployment order
-policyStack.addDependency(thingTypeStack);
-rulesStack.addDependency(policyStack);
+// Note: IoT policies are now managed in the API repository alongside certificate management
 rulesStack.addDependency(certificateStack);
+rulesStack.addDependency(thingTypeStack);
 monitoringStack.addDependency(thingTypeStack);
 monitoringStack.addDependency(rulesStack);
 

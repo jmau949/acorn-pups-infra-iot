@@ -51,6 +51,13 @@ export class IotRulesStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/lambda-functions/updateDeviceSettings/arn`
     );
 
+    // Read IoT Rule Execution Role ARN from Parameter Store (created in API repository)
+    const iotRuleExecutionRoleArnParam = ssm.StringParameter.fromStringParameterName(
+      this,
+      'IoTRuleExecutionRoleArnParam',
+      `/acorn-pups/${props.environment}/iot-core/rule-execution-role/arn`
+    );
+
     // Button Press Rule - Routes button press events from RF buttons to Lambda
     this.rules.buttonPress = new iot.CfnTopicRule(this, 'ButtonPressRule', {
       ruleName: `AcornPupsButtonPress_${props.environment}`,
@@ -67,7 +74,7 @@ export class IotRulesStack extends cdk.Stack {
         errorAction: {
           cloudwatchLogs: {
             logGroupName: `/aws/iot/rules/AcornPupsButtonPress_${props.environment}`,
-            roleArn: props.roleArn
+            roleArn: iotRuleExecutionRoleArnParam.stringValue
           }
         },
         ruleDisabled: false
@@ -112,7 +119,7 @@ export class IotRulesStack extends cdk.Stack {
         errorAction: {
           cloudwatchLogs: {
             logGroupName: `/aws/iot/rules/AcornPupsDeviceStatus_${props.environment}`,
-            roleArn: props.roleArn
+            roleArn: iotRuleExecutionRoleArnParam.stringValue
           }
         },
         ruleDisabled: false
@@ -157,7 +164,7 @@ export class IotRulesStack extends cdk.Stack {
         errorAction: {
           cloudwatchLogs: {
             logGroupName: `/aws/iot/rules/AcornPupsDeviceReset_${props.environment}`,
-            roleArn: props.roleArn
+            roleArn: iotRuleExecutionRoleArnParam.stringValue
           }
         },
         ruleDisabled: false
@@ -202,7 +209,7 @@ export class IotRulesStack extends cdk.Stack {
         errorAction: {
           cloudwatchLogs: {
             logGroupName: `/aws/iot/rules/AcornPupsDeviceSettingsAck_${props.environment}`,
-            roleArn: props.roleArn
+            roleArn: iotRuleExecutionRoleArnParam.stringValue
           }
         },
         ruleDisabled: false
@@ -247,7 +254,7 @@ export class IotRulesStack extends cdk.Stack {
         errorAction: {
           cloudwatchLogs: {
             logGroupName: `/aws/iot/rules/AcornPupsFactoryReset_${props.environment}`,
-            roleArn: props.roleArn
+            roleArn: iotRuleExecutionRoleArnParam.stringValue
           }
         },
         ruleDisabled: false
