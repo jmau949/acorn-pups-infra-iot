@@ -20,45 +20,45 @@ export class IotRulesStack extends cdk.Stack {
       stackName: 'rules',
     });
 
+    // ============================================================================
+    // 🔧 LAMBDA FUNCTION ARNS - USED BY IOT RULES
+    // ============================================================================
+
     // Read Lambda function ARNs from Parameter Store
+    // 🔄 USED BY: ButtonPressRule to route button events
     const handleButtonPressLambdaArnParam = ssm.StringParameter.fromStringParameterName(
       this,
       'HandleButtonPressLambdaArnParam',
       `/acorn-pups/${props.environment}/lambda-functions/handleButtonPress/arn`
     );
 
+    // 🔄 USED BY: DeviceStatusRule to route status updates
     const updateDeviceStatusLambdaArnParam = ssm.StringParameter.fromStringParameterName(
       this,
       'UpdateDeviceStatusLambdaArnParam', 
       `/acorn-pups/${props.environment}/lambda-functions/updateDeviceStatus/arn`
     );
 
-    const resetDeviceLambdaArnParam = ssm.StringParameter.fromStringParameterName(
-      this,
-      'ResetDeviceLambdaArnParam',
-      `/acorn-pups/${props.environment}/lambda-functions/resetDevice/arn`
-    );
-
-    const factoryResetLambdaArnParam = ssm.StringParameter.fromStringParameterName(
-      this,
-      'FactoryResetLambdaArnParam',
-      `/acorn-pups/${props.environment}/lambda-functions/factoryReset/arn`
-    );
-
+    // 🔄 USED BY: Settings update flow (API publishes to MQTT)
     const updateDeviceSettingsLambdaArnParam = ssm.StringParameter.fromStringParameterName(
       this,
       'UpdateDeviceSettingsLambdaArnParam',
       `/acorn-pups/${props.environment}/lambda-functions/updateDeviceSettings/arn`
     );
 
-    // Read IoT Rule Execution Role ARN from Parameter Store (created in API repository)
+    // 🔄 USED BY: All IoT rules for error logging
     const iotRuleExecutionRoleArnParam = ssm.StringParameter.fromStringParameterName(
       this,
       'IoTRuleExecutionRoleArnParam',
       `/acorn-pups/${props.environment}/iot-core/rule-execution-role/arn`
     );
 
-    // Button Press Rule - Routes button press events from RF buttons to Lambda
+    // ============================================================================
+    // ⚡ ACTUAL IOT RULES - USED BY SYSTEM AT RUNTIME
+    // ============================================================================
+
+    // 🔄 USED BY: ESP32 devices publishing button press events
+    // Real-time flow: ESP32 → MQTT → This Rule → handleButtonPress Lambda → Push Notifications
     this.rules.buttonPress = new iot.CfnTopicRule(this, 'ButtonPressRule', {
       ruleName: `AcornPupsButtonPress_${props.environment}`,
       topicRulePayload: {
@@ -103,7 +103,8 @@ export class IotRulesStack extends cdk.Stack {
       ]
     });
 
-    // Device Status Rule - Routes status updates from ESP32 receivers to Lambda
+    // 🔄 USED BY: ESP32 devices publishing device status updates
+    // Real-time flow: ESP32 → MQTT → This Rule → updateDeviceStatus Lambda → DynamoDB
     this.rules.deviceStatus = new iot.CfnTopicRule(this, 'DeviceStatusRule', {
       ruleName: `AcornPupsDeviceStatus_${props.environment}`,
       topicRulePayload: {
@@ -148,143 +149,17 @@ export class IotRulesStack extends cdk.Stack {
       ]
     });
 
-    // Device Reset Rule - Routes reset commands to Lambda
-    this.rules.deviceReset = new iot.CfnTopicRule(this, 'DeviceResetRule', {
-      ruleName: `AcornPupsDeviceReset_${props.environment}`,
-      topicRulePayload: {
-        sql: "SELECT *, topic(3) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/commands/+/reset'",
-        description: 'Route device reset commands to resetDevice Lambda function for ESP32 receiver factory reset',
-        actions: [
-          {
-            lambda: {
-              functionArn: resetDeviceLambdaArnParam.stringValue
-            }
-          }
-        ],
-        errorAction: {
-          cloudwatchLogs: {
-            logGroupName: `/aws/iot/rules/AcornPupsDeviceReset_${props.environment}`,
-            roleArn: iotRuleExecutionRoleArnParam.stringValue
-          }
-        },
-        ruleDisabled: false
-      },
-      tags: [
-        {
-          key: 'Project',
-          value: 'acorn-pups'
-        },
-        {
-          key: 'Environment',
-          value: props.environment
-        },
-        {
-          key: 'Service',
-          value: 'IoT-Core'
-        },
-        {
-          key: 'Component',
-          value: 'Rule'
-        },
-        {
-          key: 'RuleType',
-          value: 'DeviceReset'
-        }
-      ]
-    });
+    // REMOVED: Device Reset Rule - reset handling now via HTTP registration API only
+    // REMOVED: Device Settings Acknowledgment Rule - simplified settings flow
+    // REMOVED: Factory Reset Rule - all reset handling now via HTTP registration API
 
-    // Device Settings Acknowledgment Rule - Routes settings acknowledgments from ESP32 receivers to Lambda
-    this.rules.deviceSettingsAck = new iot.CfnTopicRule(this, 'DeviceSettingsAckRule', {
-      ruleName: `AcornPupsDeviceSettingsAck_${props.environment}`,
-      topicRulePayload: {
-        sql: "SELECT *, topic(3) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/settings/+/ack'",
-        description: 'Route settings acknowledgments from ESP32 receivers to updateDeviceSettings Lambda function',
-        actions: [
-          {
-            lambda: {
-              functionArn: updateDeviceSettingsLambdaArnParam.stringValue
-            }
-          }
-        ],
-        errorAction: {
-          cloudwatchLogs: {
-            logGroupName: `/aws/iot/rules/AcornPupsDeviceSettingsAck_${props.environment}`,
-            roleArn: iotRuleExecutionRoleArnParam.stringValue
-          }
-        },
-        ruleDisabled: false
-      },
-      tags: [
-        {
-          key: 'Project',
-          value: 'acorn-pups'
-        },
-        {
-          key: 'Environment',
-          value: props.environment
-        },
-        {
-          key: 'Service',
-          value: 'IoT-Core'
-        },
-        {
-          key: 'Component',
-          value: 'Rule'
-        },
-        {
-          key: 'RuleType',
-          value: 'DeviceSettingsAck'
-        }
-      ]
-    });
-
-    // Factory Reset Rule - Routes factory reset notifications from ESP32 receivers to Lambda
-    this.rules.factoryReset = new iot.CfnTopicRule(this, 'FactoryResetRule', {
-      ruleName: `AcornPupsFactoryReset_${props.environment}`,
-      topicRulePayload: {
-        sql: "SELECT *, topic(3) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/reset/+'",
-        description: 'Route factory reset notifications from ESP32 receivers to factoryReset Lambda function for cleanup',
-        actions: [
-          {
-            lambda: {
-              functionArn: factoryResetLambdaArnParam.stringValue
-            }
-          }
-        ],
-        errorAction: {
-          cloudwatchLogs: {
-            logGroupName: `/aws/iot/rules/AcornPupsFactoryReset_${props.environment}`,
-            roleArn: iotRuleExecutionRoleArnParam.stringValue
-          }
-        },
-        ruleDisabled: false
-      },
-      tags: [
-        {
-          key: 'Project',
-          value: 'acorn-pups'
-        },
-        {
-          key: 'Environment',
-          value: props.environment
-        },
-        {
-          key: 'Service',
-          value: 'IoT-Core'
-        },
-        {
-          key: 'Component',
-          value: 'Rule'
-        },
-        {
-          key: 'RuleType',
-          value: 'FactoryReset'
-        }
-      ]
-    });
+    // ============================================================================
+    // 🔧 RULE METADATA - USED FOR CROSS-STACK INTEGRATION
+    // ============================================================================
 
     // Store rule information in Parameter Store
     Object.entries(this.rules).forEach(([name, rule]) => {
+      // 🔄 USED BY: Monitoring stack to reference rule ARNs
       this.parameterHelper.createParameter(
         `${name}RuleArnParam`,
         rule.attrArn,
@@ -292,6 +167,7 @@ export class IotRulesStack extends cdk.Stack {
         `/acorn-pups/${props.environment}/iot-core/rules/${name}/arn`
       );
 
+      // 🔄 USED BY: Other infrastructure components that need rule names
       this.parameterHelper.createParameter(
         `${name}RuleNameParam`,
         rule.ruleName!,
@@ -299,6 +175,10 @@ export class IotRulesStack extends cdk.Stack {
         `/acorn-pups/${props.environment}/iot-core/rules/${name}/name`
       );
     });
+
+    // ============================================================================
+    // 🔧 CLOUDFORMATION OUTPUTS - USED FOR CROSS-STACK INTEGRATION
+    // ============================================================================
 
     // Create CloudFormation outputs with Parameter Store integration
     this.parameterHelper.createOutputWithParameter(
@@ -315,28 +195,11 @@ export class IotRulesStack extends cdk.Stack {
       `AcornPupsDeviceStatusRuleArn-${props.environment}`
     );
 
-    this.parameterHelper.createOutputWithParameter(
-      'DeviceResetRuleArnOutput',
-      this.rules.deviceReset.attrArn,
-      'ARN of the Device Reset IoT Rule',
-      `AcornPupsDeviceResetRuleArn-${props.environment}`
-    );
+    // ============================================================================
+    // 📖 DOCUMENTATION ONLY - NOT USED BY SYSTEM
+    // ============================================================================
 
-    this.parameterHelper.createOutputWithParameter(
-      'DeviceSettingsAckRuleArnOutput',
-      this.rules.deviceSettingsAck.attrArn,
-      'ARN of the Device Settings Acknowledgment IoT Rule',
-      `AcornPupsDeviceSettingsAckRuleArn-${props.environment}`
-    );
-
-    this.parameterHelper.createOutputWithParameter(
-      'FactoryResetRuleArnOutput',
-      this.rules.factoryReset.attrArn,
-      'ARN of the Factory Reset IoT Rule',
-      `AcornPupsFactoryResetRuleArn-${props.environment}`
-    );
-
-    // Additional rule configuration parameters
+    // 📋 DOCUMENTATION: Rule configuration details (NOT used at runtime)
     this.parameterHelper.createParameter(
       'RuleConfigurationParam',
       JSON.stringify({
@@ -351,31 +214,13 @@ export class IotRulesStack extends cdk.Stack {
           description: 'Process device status updates and store in DeviceStatus table',
           lambdaFunction: 'updateDeviceStatus',
           processing: 'PERSISTENT'
-        },
-        deviceReset: {
-          topic: 'acorn-pups/commands/+/reset',
-          description: 'Handle device factory reset commands',
-          lambdaFunction: 'resetDevice',
-          processing: 'COMMAND'
-        },
-        deviceSettingsAck: {
-          topic: 'acorn-pups/settings/+/ack',
-          description: 'Process settings acknowledgments from ESP32 receivers',
-          lambdaFunction: 'updateDeviceSettings',
-          processing: 'ACKNOWLEDGMENT'
-        },
-        factoryReset: {
-          topic: 'acorn-pups/reset/+',
-          description: 'Process factory reset notifications and cleanup AWS resources',
-          lambdaFunction: 'factoryReset',
-          processing: 'CLEANUP'
         }
       }),
       'IoT Rule configuration details',
       `/acorn-pups/${props.environment}/iot-core/rule-configuration`
     );
 
-    // Lambda function requirements for IoT rules with role mapping
+    // 📋 DOCUMENTATION: Lambda function requirements (NOT used at runtime)
     this.parameterHelper.createParameter(
       'LambdaFunctionRequirementsParam',
       JSON.stringify({
@@ -400,55 +245,35 @@ export class IotRulesStack extends cdk.Stack {
           iotRuleTrigger: 'acorn-pups/status/+',
           permissions: ['DynamoDB read/write', 'Parameter Store read']
         },
-        resetDevice: {
-          purpose: 'Handle device factory reset commands',
-          inputData: 'deviceId, resetReason, timestamp',
-          outputAction: 'Clean up device data and certificates',
-          databaseAccess: 'All device-related tables (cleanup)',
-          lambdaRole: 'iotDeviceManagementRole',
-          roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
-          iotRuleTrigger: 'acorn-pups/commands/+/reset',
-          permissions: ['Full IoT management', 'DynamoDB read/write', 'S3 access', 'Parameter Store read']
-        },
         updateDeviceSettings: {
-          purpose: 'Process settings updates from API and device acknowledgments',
+          purpose: 'Process settings updates from API and publish to device MQTT topic',
           inputData: 'deviceId, settings, timestamp',
           outputAction: 'Update database and publish to device MQTT topic',
           databaseAccess: 'Devices table (update), publish to MQTT',
           lambdaRole: 'iotCommunicationRole',
           roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
-          iotRuleTrigger: 'acorn-pups/settings/+/ack',
+          apiTrigger: 'PUT /devices/{deviceId}/settings',
+          mqttPublish: 'acorn-pups/settings/{deviceId}',
           permissions: ['IoT publish', 'DynamoDB read/write', 'Parameter Store read']
-        },
-        factoryReset: {
-          purpose: 'Process factory reset notifications from devices and cleanup AWS resources',
-          inputData: 'deviceId, resetTimestamp, oldCertificateArn, reason',
-          outputAction: 'Revoke certificates, delete IoT Things, cleanup database records',
-          databaseAccess: 'All device-related tables (cleanup), DeviceUsers, Invitations',
-          lambdaRole: 'iotDeviceManagementRole',
-          roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
-          iotRuleTrigger: 'acorn-pups/reset/+',
-          permissions: ['Full IoT management', 'Certificate revocation', 'DynamoDB read/write', 'Parameter Store read']
         }
       }),
       'Lambda function requirements and role mapping for IoT rules',
       `/acorn-pups/${props.environment}/iot-core/lambda-function-requirements`
     );
 
-    // Additional parameters for monitoring and debugging
+    // 📋 DOCUMENTATION: MQTT topics reference (NOT used at runtime)
     this.parameterHelper.createParameter(
       'RuleTopicsParam',
       JSON.stringify({
         buttonPress: 'acorn-pups/button-press/+',
         deviceStatus: 'acorn-pups/status/+',
-        deviceReset: 'acorn-pups/commands/+/reset',
-        deviceSettingsAck: 'acorn-pups/settings/+/ack',
-        factoryReset: 'acorn-pups/reset/+'
+        deviceSettings: 'acorn-pups/settings/+' // Note: Published TO devices, not FROM devices
       }),
-      'MQTT topics monitored by IoT Rules',
+      'MQTT topics monitored by IoT Rules and published to devices',
       `/acorn-pups/${props.environment}/iot-core/rule-topics`
     );
 
+    // 📋 DOCUMENTATION: CloudWatch log prefix (NOT used at runtime)
     this.parameterHelper.createParameter(
       'LogGroupPrefixParam',
       `/aws/iot/rules/AcornPups`,
@@ -456,39 +281,31 @@ export class IotRulesStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/log-group-prefix`
     );
 
-    // API integration mapping with granular role structure
+    // 📋 DOCUMENTATION: Complete integration mapping (NOT used at runtime)
     this.parameterHelper.createParameter(
       'ApiRuleIntegrationParam',
       JSON.stringify({
-        description: 'Complete integration mapping between API endpoints, IoT rules, Lambda functions, and roles',
+        description: 'Complete integration mapping between API endpoints, IoT rules, Lambda functions, and roles with device instance ID security',
+        deviceInstanceIdSecurity: {
+          resetDetection: 'Compare device_instance_id to detect factory resets',
+          ownershipTransfer: 'Automatic cleanup when reset is proven via new instance ID',
+          physicalAccessRequired: 'Only physical reset button can generate new instance ID',
+          httpBasedReset: 'All reset handling via HTTP registration API (no MQTT reset topics)'
+        },
         apiToIoTFlow: {
           'PUT /devices/{deviceId}/settings': {
             apiFunction: 'update-device-settings',
             apiRole: 'iotCommunicationRole',
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
             publishToMqtt: 'acorn-pups/settings/{deviceId}',
-            deviceResponse: 'acorn-pups/settings/{deviceId}/ack',
-            iotRule: 'deviceSettingsAck',
-            ruleFunction: 'update-device-settings',
-            ruleRole: 'iotCommunicationRole',
-            flow: 'API -> Lambda (IoT Comm Role) -> MQTT -> Device -> MQTT (ack) -> Lambda (IoT Comm Role) -> Database',
+            flow: 'API -> Lambda (IoT Comm Role) -> MQTT -> Device applies settings',
             permissions: 'IoT publish, DynamoDB read/write'
-          },
-          'POST /devices/{deviceId}/reset': {
-            apiFunction: 'reset-device',
-            apiRole: 'iotDeviceManagementRole',
-            roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
-            publishToMqtt: 'acorn-pups/commands/{deviceId}/reset',
-            iotRule: 'deviceReset',
-            ruleFunction: 'reset-device',
-            ruleRole: 'iotDeviceManagementRole',
-            flow: 'API -> Lambda (IoT Device Mgmt Role) -> MQTT -> Device -> MQTT (ack) -> Lambda (IoT Device Mgmt Role) -> Cleanup',
-            permissions: 'Full IoT management, certificate cleanup, DynamoDB read/write, S3 access'
           },
           'POST /devices/register': {
             apiFunction: 'register-device',
             apiRole: 'iotDeviceManagementRole',
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
+            resetValidation: 'Compare device_instance_id to detect resets and handle ownership transfer',
             iotOperations: 'Certificate generation, Thing creation, Policy attachment',
             flow: 'API -> Lambda (IoT Device Mgmt Role) -> IoT certificate/thing creation -> Database',
             permissions: 'Full IoT management, certificate generation, DynamoDB read/write, S3 backup'
@@ -512,22 +329,13 @@ export class IotRulesStack extends cdk.Stack {
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
             flow: 'Device -> MQTT -> IoT Rule -> Lambda (Base Role) -> DynamoDB',
             permissions: 'DynamoDB read/write only'
-          },
-          'Factory reset notification': {
-            devicePublish: 'acorn-pups/reset/{deviceId}',
-            iotRule: 'factoryReset',
-            lambdaFunction: 'factory-reset',
-            lambdaRole: 'iotDeviceManagementRole',
-            roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
-            flow: 'Device -> MQTT -> IoT Rule -> Lambda (IoT Device Mgmt Role) -> Certificate Cleanup -> Database Cleanup',
-            permissions: 'Full IoT management, certificate revocation, DynamoDB read/write'
           }
         },
         rolePermissionMapping: {
           iotDeviceManagementRole: {
-            functions: ['register-device', 'reset-device', 'factory-reset'],
+            functions: ['register-device'],
             permissions: 'Full IoT certificate and Thing management, S3 certificate backup, DynamoDB access',
-            useCases: 'Device lifecycle management, certificate operations, factory reset cleanup'
+            useCases: 'Device lifecycle management, certificate operations, reset-based ownership transfer'
           },
           iotCommunicationRole: {
             functions: ['update-device-settings'],
@@ -540,13 +348,13 @@ export class IotRulesStack extends cdk.Stack {
             useCases: 'Push notifications, email invitations'
           },
           baseLambdaRole: {
-            functions: ['update-device-status', 'get-user-devices', 'health-check', 'user management'],
+            functions: ['update-device-status', 'get-user-devices', 'health-check', 'user management', 'cognito-post-confirmation'],
             permissions: 'DynamoDB access, Parameter Store access only',
-            useCases: 'Basic CRUD operations, data retrieval'
+            useCases: 'Basic CRUD operations, data retrieval, user creation after email verification'
           }
         }
       }),
-      'Complete API and device integration mapping with granular role structure',
+      'Complete API and device integration mapping with device instance ID security',
       `/acorn-pups/${props.environment}/iot-core/api-rule-integration`
     );
   }

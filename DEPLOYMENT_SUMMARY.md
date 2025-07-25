@@ -1,270 +1,147 @@
 # Acorn Pups IoT Infrastructure - Deployment Summary
 
-## Repository Overview
+## Project Overview
+AWS CDK Infrastructure for Acorn Pups IoT Core components and device management with enhanced security features.
 
-This AWS CDK TypeScript repository provides complete infrastructure for the Acorn Pups IoT dog communication system, including AWS IoT Core components, device management, and monitoring.
+## Recent Updates (Updated for Device Instance ID Security)
 
-## ✅ Completed Infrastructure Components
+### ✅ Enhanced Security Architecture
+- **Device Instance ID Security**: Added `device_instance_id` field for reset security tracking
+- **HTTP-Based Reset**: Eliminated MQTT reset complexity in favor of HTTP registration API
+- **Echo/Nest Pattern**: Implemented industry-standard reset validation approach
+- **Physical Access Required**: Only physical reset button can generate new instance ID
 
-### 1. **IoT Thing Type Stack** (`lib/iot-thing-type-stack.ts`)
-- ✅ AcornPupsDevice Thing Type with searchable attributes
-- ✅ Parameter Store integration for cross-stack references
-- ✅ Environment-specific naming and tagging
+### ✅ Simplified Topic Structure
+- **Removed MQTT Reset Topics**: Eliminated `acorn-pups/reset/+` and related reset logic
+- **Streamlined Rules**: Reduced from 5 IoT rules to 2 core rules (button press and device status)
+- **Simplified Settings Flow**: Removed settings acknowledgment rule for cleaner architecture
 
-### 2. **IoT Policy Stack** (`lib/iot-policy-stack.ts`)
-- ✅ Device-specific IoT policy with minimal security principle
-- ✅ Client ID pattern enforcement (`acorn-esp32-*`)
-- ✅ Topic-specific permissions for device communication
-- ✅ IAM role for IoT Rules execution with Lambda permissions
+### ✅ Updated Lambda Function Mappings
+- **Added Cognito Post-Confirmation**: Support for automatic user creation after email verification
+- **Removed Reset Functions**: `resetDevice` and `factoryReset` functions removed (now handled via HTTP API)
+- **Updated Role Mapping**: Enhanced role structure with device instance ID security validation
 
-### 3. **IoT Rules Stack** (`lib/iot-rules-stack.ts`)
-- ✅ Button Press Rule → `handleButtonPress` Lambda
-- ✅ Device Status Rule → `updateDeviceStatus` Lambda
-- ✅ Device Reset Rule → `resetDevice` Lambda
-- ✅ Shadow Update Rule for offline state management
+### ✅ Certificate Management Updates
+- **Reset Validation**: Enhanced certificate cleanup with device instance ID validation
+- **Ownership Transfer**: Automatic cleanup when legitimate reset is detected
+- **Security Prevention**: Prevents remote takeover attacks through instance ID verification
 
-- ✅ CloudWatch Logs error handling
+## Current Stack Structure
 
-### 4. **Certificate Management Stack** (`lib/certificate-management-stack.ts`)
-- ✅ S3 bucket for certificate storage with encryption
-- ✅ CA certificate management (placeholder implementation)
-- ✅ Certificate templates for device registration
-- ✅ Lifecycle policies for certificate cleanup
+### 1. Certificate Management Stack (`certificate-management-stack.ts`)
+- **S3 Bucket**: Certificate storage and backup
+- **Enhanced API Workflow**: Device registration with reset security validation
+- **Role Documentation**: Updated Lambda role mappings with device instance ID security
+- **Security Best Practices**: Instance ID-based reset validation
 
-### 5. **Monitoring Stack** (`lib/monitoring-stack.ts`)
-- ✅ CloudWatch Dashboard with IoT metrics
-- ✅ CloudWatch Alarms for error monitoring
-- ✅ Custom metrics for device activity
+### 2. IoT Thing Type Stack (`iot-thing-type-stack.ts`)
+- **Receiver Thing Type**: ESP32-based smart receivers
+- **Searchable Attributes**: deviceName, serialNumber, macAddress
+- **Device Architecture Info**: Documentation for receivers vs RF buttons
 
-### 6. **Parameter Store Helper** (`lib/parameter-store-helper.ts`)
-- ✅ Standardized parameter path generation
-- ✅ Cross-stack integration support
-- ✅ IoT-specific parameter management methods
-- ✅ CloudFormation output automation
+### 3. IoT Rules Stack (`iot-rules-stack.ts`) - **UPDATED**
+- **Button Press Rule**: Routes RF button events to `handleButtonPress` Lambda
+- **Device Status Rule**: Routes status updates to `updateDeviceStatus` Lambda
+- **REMOVED**: Factory reset rule, device reset rule, settings acknowledgment rule
+- **Simplified Configuration**: Only essential rules for core functionality
 
-## 📁 Project Structure
+### 4. Monitoring Stack (`monitoring-stack.ts`)
+- **CloudWatch Integration**: Monitors all IoT components
+- **Rule Monitoring**: Tracks performance of remaining IoT rules
 
-```
-acorn-pups-infra-iot/
-├── bin/
-│   └── app.ts                    # Main CDK application
-├── lib/
-│   ├── types.ts                  # TypeScript interfaces
-│   ├── parameter-store-helper.ts # Parameter Store utilities
-│   ├── iot-thing-type-stack.ts   # Thing Type infrastructure
-│   ├── iot-policy-stack.ts       # Policies and IAM roles
-│   ├── iot-rules-stack.ts        # MQTT routing rules
-│   ├── certificate-management-stack.ts # Certificate management
-│   └── monitoring-stack.ts       # CloudWatch monitoring
-├── tests/
-│   └── iot-stacks.test.ts       # Unit tests
-├── scripts/
-│   └── deploy.ps1               # PowerShell deployment script
-├── docs/
-│   └── deployment-guide.md      # Comprehensive deployment guide
-├── package.json                 # Dependencies and scripts
-├── cdk.json                     # CDK configuration
-├── tsconfig.json               # TypeScript configuration
-└── README.md                   # Project documentation
+## Key Architecture Changes
+
+### Device Instance ID Security Pattern
+```typescript
+// NEW: Device Instance ID for reset security
+export interface DeviceRegistrationRequest {
+  deviceId: string;
+  deviceInstanceId: string; // UUID generated each factory reset cycle
+  deviceName: string;
+  serialNumber: string;
+  macAddress: string;
+  deviceState?: string; // "factory_reset" or "normal"
+  resetTimestamp?: number; // When reset occurred
+}
 ```
 
-## 🔧 Environment Configuration
-
-### Development (`dev`)
-- Debug logging enabled
-- 365-day certificate expiration
-- Detailed monitoring
-- CloudWatch error destinations
-
-### Production (`prod`)
-- Info-level logging
-- 730-day certificate expiration
-- S3 retention policies
-- Enhanced security configurations
-
-## 🌐 MQTT Topic Architecture
-
-| Topic Pattern | Direction | Purpose | Rule |
-|---------------|-----------|---------|------|
-| `acorn-pups/button-press/{deviceId}` | Device → Cloud | Button press events | ButtonPressRule |
-| `acorn-pups/status/{deviceId}` | Device → Cloud | Device status updates | DeviceStatusRule |
-| `acorn-pups/settings/{deviceId}` | Cloud → Device | Configuration updates | N/A |
-| `acorn-pups/commands/{deviceId}` | Cloud → Device | Device commands | DeviceResetRule |
-
-
-## 📊 Parameter Store Integration
-
-All infrastructure outputs are stored in Parameter Store for cross-stack integration:
-
-```
-/acorn-pups/{environment}/iot-core/
-├── thing-type/
-│   ├── arn
-│   ├── name
-│   └── description
-├── device-policy/
-│   ├── arn
-│   └── name
-├── rules/
-│   ├── {ruleName}/arn
-│   └── {ruleName}/name
-├── certificate-bucket/
-│   ├── name
-│   └── arn
-├── ca-certificate/
-│   ├── arn
-│   └── id
-└── endpoint-url
+### Simplified MQTT Topic Structure
+```typescript
+// UPDATED: Removed reset-related topics
+export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
+  buttonPress: 'acorn-pups/button-press/+',
+  status: 'acorn-pups/status/+',
+  settings: 'acorn-pups/settings/+',
+  commands: 'acorn-pups/commands/+',
+  // REMOVED: Reset-related topics - now handled via HTTP API only
+};
 ```
 
-## 🚀 Deployment Commands
-
-### Quick Start
-```powershell
-# Install dependencies
-npm install
-
-# Deploy to development
-.\scripts\deploy.ps1 -Environment dev
-
-# Deploy to production
-.\scripts\deploy.ps1 -Environment prod
+### Updated Lambda Function List
+```typescript
+// UPDATED: Removed reset functions, added Cognito post-confirmation
+export const LAMBDA_FUNCTIONS = {
+  // Button and device management
+  handleButtonPress: 'handleButtonPress',
+  updateDeviceStatus: 'updateDeviceStatus',
+  registerDevice: 'registerDevice', // Enhanced with reset validation
+  updateDeviceSettings: 'updateDeviceSettings',
+  
+  // User management and invitations
+  cognitoPostConfirmation: 'cognitoPostConfirmation', // NEW
+  inviteUser: 'inviteUser',
+  acceptInvitation: 'acceptInvitation',
+  declineInvitation: 'declineInvitation',
+  removeUserAccess: 'removeUserAccess',
+  
+  // Data retrieval
+  getUserDevices: 'getUserDevices',
+  getUserInvitations: 'getUserInvitations',
+  healthCheck: 'healthCheck',
+  
+  // REMOVED: resetDevice, factoryReset
+};
 ```
 
-### Alternative CDK Commands
-```powershell
-# Build and synthesize
-npm run build
-cdk synth --context environment=dev
+## Deployment Commands
 
-# Deploy all stacks
+```bash
+# Development Environment
 npm run deploy:dev
 
-# Deploy specific stack
-cdk deploy acorn-pups-iot-dev-thing-types --context environment=dev
+# Production Environment  
+npm run deploy:prod
+
+# Synthesis Check
+npm run synth
+
+# Clean Build
+npm run build
 ```
 
-## 📋 Prerequisites
+## Environment Variables Required
+- `CDK_DEFAULT_ACCOUNT`: AWS Account ID
+- `CDK_DEFAULT_REGION`: AWS Region (default: us-east-1)
 
-- ✅ Node.js 22.0.0+
-- ✅ AWS CDK v2.100.0+
-- ✅ AWS CLI configured
-- ✅ PowerShell (for deployment scripts)
-- ⚠️ **API Infrastructure** must be deployed first (contains Lambda functions)
+## Parameter Store Integration
+All stack outputs are automatically stored in AWS Systems Manager Parameter Store with paths:
+- `/acorn-pups/{environment}/iot-core/`
+- `/acorn-pups/{environment}/lambda-functions/`
 
-## 🔗 Integration Points
+## Security Enhancements
+1. **Device Instance ID**: Prevents remote takeover attacks
+2. **Physical Reset Required**: Only physical access can generate new instance ID
+3. **HTTP-Based Reset**: All reset handling via secure API endpoints
+4. **Certificate Cleanup**: Automatic cleanup when legitimate reset detected
+5. **Ownership Transfer**: Secure device ownership transfer after factory reset
 
-### Required Lambda Functions (from API stack)
-- `/acorn-pups/{environment}/lambda-functions/handleButtonPress/arn`
-- `/acorn-pups/{environment}/lambda-functions/updateDeviceStatus/arn`
-- `/acorn-pups/{environment}/lambda-functions/resetDevice/arn`
+## Dependencies
+- **API Repository**: Lambda functions and IAM roles
+- **Mobile App**: Consumes IoT infrastructure for device management
+- **ESP32 Firmware**: Implements device instance ID security pattern
 
-### Provided Outputs (for other stacks)
-- IoT Core endpoint URLs
-- Thing Type ARNs and names
-- Policy ARNs for device registration
-- Rule ARNs for monitoring
-- Certificate bucket for device certificates
-
-## 🛡️ Security Features
-
-### Device Security
-- ✅ Unique X.509 certificates per device
-- ✅ Client ID pattern enforcement
-- ✅ Device-specific topic access only
-- ✅ Certificate attachment requirement
-
-### Infrastructure Security
-- ✅ Encrypted S3 storage
-- ✅ Minimal IAM permissions
-- ✅ MQTT over TLS 1.2
-- ✅ Parameter Store for secrets management
-
-## 📈 Monitoring & Observability
-
-### CloudWatch Dashboard
-- Device connectivity metrics
-- Message processing throughput
-- Rule execution statistics
-- Custom device metrics
-
-### CloudWatch Alarms
-- High error rate (>5%)
-- Device connectivity issues (>10 failures/5min)
-
-## 🧪 Testing
-
-```powershell
-# Run unit tests
-npm test
-
-# Test specific stack
-npm run test:watch
-
-# Test IoT Rule
-aws iot publish --topic "acorn-pups/button-press/test-device" --payload '{"test": true}'
-```
-
-## 📚 Documentation
-
-- **README.md**: Project overview and basic setup
-- **docs/deployment-guide.md**: Comprehensive deployment instructions
-- **DEPLOYMENT_SUMMARY.md**: This summary document
-- **scripts/deploy.ps1**: Automated deployment with validation
-
-## 🔄 Stack Dependencies
-
-1. **Certificate Management** (independent)
-2. **IoT Thing Type** (independent)
-3. **IoT Policy** (depends on Thing Type)
-4. **IoT Rules** (depends on Policy, Certificate, Lambda ARNs)
-5. **Monitoring** (depends on Thing Type, Rules)
-
-## ✨ Key Features
-
-- 🏗️ **Modern AWS CDK**: TypeScript-based infrastructure as code
-- 🔄 **Cross-Stack Integration**: Parameter Store for seamless integration
-- 🛡️ **Security First**: Minimal permissions and device-specific access
-- 📊 **Comprehensive Monitoring**: CloudWatch dashboards and alarms
-- 🧪 **Well Tested**: Unit tests for all infrastructure components
-- 📋 **PowerShell Automation**: Windows-friendly deployment scripts
-- 📖 **Extensive Documentation**: Complete setup and troubleshooting guides
-
-## 🎯 Next Steps
-
-1. **Deploy API Infrastructure** (if not already done)
-2. **Run `npm install`** to install dependencies
-3. **Configure AWS credentials** and environment variables
-4. **Deploy to development** using `.\scripts\deploy.ps1 -Environment dev`
-5. **Verify deployment** using provided validation commands
-6. **Set up ESP32 devices** with generated certificates
-7. **Monitor device activity** through CloudWatch dashboard
-
-## 🔐 Certificate Management
-
-### AWS IoT Core Managed Certificates
-- ✅ **AWS-Managed Certificates**: Uses AWS IoT Core's built-in certificate generation
-- ✅ **S3 Certificate Storage**: Secure bucket for device certificates and metadata
-- ✅ **Amazon Root CA**: Provides Root CA 1 information for device configuration
-- ✅ **Certificate Configuration**: Automated setup using AWS CLI/SDK commands
-- ✅ **IoT Endpoints**: AWS IoT Core endpoints for device connections
-- ✅ **Simplified Management**: No custom CA overhead or maintenance
-
-### Certificate Generation Commands
-```bash
-# Create device certificate
-aws iot create-keys-and-certificate --set-as-active
-
-# Create IoT Thing
-aws iot create-thing --thing-name <deviceId> --thing-type-name AcornPupsDevice-dev
-
-# Attach policy to certificate
-aws iot attach-policy --policy-name AcornPupsDevicePolicy-dev --target <certificateArn>
-
-# Attach certificate to Thing
-aws iot attach-thing-principal --thing-name <deviceId> --principal <certificateArn>
-```
-
----
-
-*This infrastructure provides a complete, production-ready IoT platform for the Acorn Pups dog communication system with comprehensive monitoring, security, and integration capabilities.* 
+## Validation Status
+✅ All stacks synthesize successfully  
+✅ TypeScript compilation passes  
+✅ Security architecture updated  
+✅ Documentation aligned with implementation 

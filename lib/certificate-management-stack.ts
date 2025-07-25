@@ -17,7 +17,12 @@ export class CertificateManagementStack extends cdk.Stack {
       stackName: 'certificates',
     });
 
+    // ============================================================================
+    // 🏗️ ACTUAL INFRASTRUCTURE - USED BY SYSTEM
+    // ============================================================================
+
     // Create S3 bucket for storing device metadata and backup certificates
+    // 🔄 USED BY: registerDevice Lambda function for certificate backups
     this.certificateBucket = new s3.Bucket(this, 'CertificateBucket', {
       bucketName: `acorn-pups-certificates-${props.environment}-${this.account}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
@@ -39,7 +44,11 @@ export class CertificateManagementStack extends cdk.Stack {
     cdk.Tags.of(this.certificateBucket).add('Service', 'IoT-Core');
     cdk.Tags.of(this.certificateBucket).add('Component', 'CertificateStorage');
 
-    // Store certificate information in Parameter Store
+    // ============================================================================
+    // 🔧 CONFIGURATION PARAMETERS - USED BY LAMBDA FUNCTIONS
+    // ============================================================================
+
+    // 🔄 USED BY: registerDevice Lambda to know where to store certificate backups
     this.parameterHelper.createParameter(
       'CertificateBucketNameParam',
       this.certificateBucket.bucketName,
@@ -47,6 +56,7 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/certificate-bucket/name`
     );
 
+    // 🔄 USED BY: Lambda functions that need S3 bucket permissions
     this.parameterHelper.createParameter(
       'CertificateBucketArnParam',
       this.certificateBucket.bucketArn,
@@ -58,6 +68,7 @@ export class CertificateManagementStack extends cdk.Stack {
     const iotEndpoint = `${cdk.Aws.ACCOUNT_ID}.iot.${cdk.Aws.REGION}.amazonaws.com`;
     const iotDataEndpoint = `${cdk.Aws.ACCOUNT_ID}-ats.iot.${cdk.Aws.REGION}.amazonaws.com`;
 
+    // 🔄 USED BY: Lambda functions for IoT management operations
     this.parameterHelper.createParameter(
       'IoTEndpointParam',
       iotEndpoint,
@@ -65,6 +76,7 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/endpoint`
     );
 
+    // 🔄 USED BY: ESP32 devices and Lambda functions for MQTT connections
     this.parameterHelper.createParameter(
       'IoTDataEndpointParam',
       iotDataEndpoint,
@@ -72,7 +84,7 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/data-endpoint`
     );
 
-    // AWS IoT Core managed certificate configuration
+    // 🔄 USED BY: Lambda functions to configure certificate type
     this.parameterHelper.createParameter(
       'CertificateTypeParam',
       'AWS_MANAGED',
@@ -80,6 +92,7 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/certificate-type`
     );
 
+    // 🔄 USED BY: Lambda functions to set certificate expiration
     this.parameterHelper.createParameter(
       'CertificateExpirationDaysParam',
       props.certificateExpirationDays.toString(),
@@ -87,7 +100,7 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/certificate-expiration-days`
     );
 
-    // ESP32 receiver certificate configuration for AWS IoT Core
+    // 🔄 USED BY: registerDevice Lambda for certificate configuration
     this.parameterHelper.createParameter(
       'ReceiverCertificateConfigParam',
       JSON.stringify({
@@ -104,18 +117,42 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/receiver-certificate-config`
     );
 
-    // API-specific certificate generation workflow (references IoT Device Management role from API repo)
+    // ============================================================================
+    // 📖 DOCUMENTATION ONLY - NOT USED BY SYSTEM
+    // ============================================================================
+
+    // 📋 DOCUMENTATION: Detailed workflow steps (NOT executed by system)
+    // This is reference documentation for API developers implementing registerDevice Lambda
     this.parameterHelper.createParameter(
       'ApiCertificateGenerationWorkflowParam',
       JSON.stringify({
         apiEndpoint: 'POST /devices/register',
         method: 'LAMBDA_FUNCTION',
-        description: 'Certificate generation workflow for device registration API',
+        description: 'Certificate generation workflow for device registration API with device instance ID reset security',
         lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
         roleDescription: 'IoT Device Management role with full IoT certificate and thing management permissions',
+        deviceInstanceIdSecurity: {
+          description: 'Device instance ID prevents remote takeover and enables reset-based ownership transfer',
+          resetDetection: 'Compare device_instance_id to detect factory resets',
+          ownershipTransfer: 'Automatic cleanup when reset is proven via new instance ID',
+          physicalAccessRequired: 'Only physical reset button can generate new instance ID'
+        },
         steps: [
           {
             step: 1,
+            action: 'validateReset',
+            description: 'Check device_instance_id to detect factory resets and validate ownership transfer',
+            logic: 'If device exists AND has different device_instance_id -> Allow ownership transfer, If same instance_id -> Reject (no reset), If new device -> Normal registration'
+          },
+          {
+            step: 2,
+            action: 'cleanupExistingResources',
+            description: 'Revoke old certificates and clean up existing device resources if reset detected',
+            condition: 'Only if device_instance_id changed (reset detected)',
+            apiCalls: ['iot:ListThingPrincipals', 'iot:DetachThingPrincipal', 'iot:DetachPolicy', 'iot:UpdateCertificate', 'iot:DeleteCertificate']
+          },
+          {
+            step: 3,
             action: 'createKeysAndCertificate',
             description: 'Generate AWS-managed X.509 certificate and private key',
             apiCall: 'iot:CreateKeysAndCertificate',
@@ -124,7 +161,7 @@ export class CertificateManagementStack extends cdk.Stack {
             }
           },
           {
-            step: 2,
+            step: 4,
             action: 'createThing',
             description: 'Create IoT Thing for ESP32 receiver',
             apiCall: 'iot:CreateThing',
@@ -135,13 +172,14 @@ export class CertificateManagementStack extends cdk.Stack {
                 attributes: {
                   deviceName: '{deviceName}',
                   serialNumber: '{serialNumber}',
-                  macAddress: '{macAddress}'
+                  macAddress: '{macAddress}',
+                  deviceInstanceId: '{deviceInstanceId}'
                 }
               }
             }
           },
           {
-            step: 3,
+            step: 5,
             action: 'attachPolicy',
             description: 'Attach receiver policy to certificate',
             apiCall: 'iot:AttachPolicy',
@@ -151,7 +189,7 @@ export class CertificateManagementStack extends cdk.Stack {
             }
           },
           {
-            step: 4,
+            step: 6,
             action: 'attachThingPrincipal',
             description: 'Attach certificate to Thing as principal',
             apiCall: 'iot:AttachThingPrincipal',
@@ -161,13 +199,27 @@ export class CertificateManagementStack extends cdk.Stack {
             }
           },
           {
-            step: 5,
+            step: 7,
             action: 'storeBackup',
             description: 'Store certificate backup in S3',
             apiCall: 's3:PutObject',
             parameters: {
               bucket: this.certificateBucket.bucketName,
               key: 'devices/{deviceId}/certificate.pem'
+            }
+          },
+          {
+            step: 8,
+            action: 'updateDatabase',
+            description: 'Update Devices table with new instance ID and ownership information',
+            apiCall: 'dynamodb:PutItem',
+            parameters: {
+              table: 'Devices',
+              item: {
+                device_instance_id: '{deviceInstanceId}',
+                last_reset_at: '{resetTimestamp}',
+                owner_user_id: '{newOwnerId}'
+              }
             }
           }
         ],
@@ -176,13 +228,13 @@ export class CertificateManagementStack extends cdk.Stack {
           privateKey: 'RSA PEM format private key',
           iotEndpoint: iotDataEndpoint
         },
-        note: 'Uses IoT Device Management role created in API repository with comprehensive IoT permissions'
+        note: 'Uses IoT Device Management role created in API repository with comprehensive IoT permissions and device instance ID security'
       }),
-      'API-specific certificate generation workflow for device registration',
+      'API-specific certificate generation workflow for device registration with reset security',
       `/acorn-pups/${props.environment}/iot-core/api-certificate-generation-workflow`
     );
 
-    // Certificate generation workflow for ESP32 receivers
+    // 📋 DOCUMENTATION: CLI commands for reference (NOT executed by system)
     this.parameterHelper.createParameter(
       'CertificateGenerationWorkflowParam',
       JSON.stringify({
@@ -216,7 +268,7 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/certificate-generation-workflow`
     );
 
-    // Required certificate files for ESP32 receivers
+    // 📋 DOCUMENTATION: File format reference (NOT used by system)
     this.parameterHelper.createParameter(
       'ReceiverCertificateFilesParam',
       JSON.stringify({
@@ -240,6 +292,10 @@ export class CertificateManagementStack extends cdk.Stack {
       'Required certificate files for ESP32 receivers',
       `/acorn-pups/${props.environment}/iot-core/receiver-certificate-files`
     );
+
+    // ============================================================================
+    // 🔧 CLOUDFORMATION OUTPUTS - USED FOR CROSS-STACK INTEGRATION
+    // ============================================================================
 
     // Create CloudFormation outputs with Parameter Store integration
     this.parameterHelper.createOutputWithParameter(
@@ -270,7 +326,11 @@ export class CertificateManagementStack extends cdk.Stack {
       `AcornPupsIoTDataEndpoint-${props.environment}`
     );
 
-    // Amazon Root CA information for ESP32 receivers
+    // ============================================================================
+    // 📖 MORE DOCUMENTATION ONLY - NOT USED BY SYSTEM
+    // ============================================================================
+
+    // 📋 DOCUMENTATION: Amazon Root CA reference info (NOT used by system)
     this.parameterHelper.createParameter(
       'AmazonRootCAInfoParam',
       JSON.stringify({
@@ -284,7 +344,7 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/amazon-root-ca`
     );
 
-    // Certificate security best practices
+    // 📋 DOCUMENTATION: Security best practices (NOT used by system)
     this.parameterHelper.createParameter(
       'CertificateSecurityBestPracticesParam',
       JSON.stringify({
@@ -298,61 +358,85 @@ export class CertificateManagementStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/certificate-security-best-practices`
     );
 
-    // Device reset certificate cleanup workflow
+    // 📋 DOCUMENTATION: Reset cleanup workflow (NOT executed by system)
     this.parameterHelper.createParameter(
       'DeviceResetCertificateCleanupParam',
       JSON.stringify({
-        description: 'Certificate cleanup workflow for device reset API',
+        description: 'Certificate cleanup workflow for HTTP-based device reset with device instance ID security',
+        trigger: 'POST /devices/register API call with different device_instance_id',
         lambdaExecutionRole: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
         roleDescription: 'IoT Device Management role with full IoT certificate and thing management permissions',
+        resetSecurity: {
+          description: 'Echo/Nest pattern for secure device reset',
+          physicalAccessRequired: 'Only physical reset button can generate new device_instance_id',
+          preventRemoteTakeover: 'Registration fails without valid reset proof (new instance ID)',
+          ownershipTransfer: 'Automatic cleanup when legitimate reset is detected'
+        },
         steps: [
           {
             step: 1,
+            action: 'validateReset',
+            description: 'Compare device_instance_id to confirm factory reset occurred',
+            condition: 'device_instance_id != stored_device_instance_id'
+          },
+          {
+            step: 2,
             action: 'listThingPrincipals',
             description: 'List certificates attached to the Thing'
           },
           {
-            step: 2,
+            step: 3,
             action: 'detachThingPrincipal',
             description: 'Detach certificates from the Thing'
           },
           {
-            step: 3,
+            step: 4,
             action: 'detachPolicy',
             description: 'Detach policies from certificates'
           },
           {
-            step: 4,
+            step: 5,
             action: 'updateCertificate',
             description: 'Set certificate status to INACTIVE'
           },
           {
-            step: 5,
+            step: 6,
             action: 'deleteCertificate',
             description: 'Delete the certificate after grace period'
           },
           {
-            step: 6,
+            step: 7,
             action: 'deleteThing',
             description: 'Delete the IoT Thing'
+          },
+          {
+            step: 8,
+            action: 'cleanupDatabase',
+            description: 'Remove DeviceUsers entries and update Devices table',
+            note: 'Complete ownership transfer after reset validation'
           }
         ],
-        note: 'Uses IoT Device Management role created in API repository with comprehensive IoT permissions'
+        note: 'No MQTT reset topics - all reset handling via HTTP registration API with device instance ID validation'
       }),
-      'Certificate cleanup workflow for device reset',
+      'HTTP-based certificate cleanup workflow for device reset with instance ID security',
       `/acorn-pups/${props.environment}/iot-core/device-reset-certificate-cleanup`
     );
 
-    // Lambda execution role requirements (documentation only - roles created in API repo)
+    // 📋 DOCUMENTATION: Lambda role requirements (NOT used by system)
     this.parameterHelper.createParameter(
       'LambdaIoTPermissionsRequiredParam',
       JSON.stringify({
-        description: 'IoT permissions and role mapping for Lambda functions created in API repository',
+        description: 'IoT permissions and role mapping for Lambda functions created in API repository with device instance ID security',
         roleLocation: 'acorn-pups-infrastructure-api repository',
+        deviceInstanceIdSecurity: {
+          description: 'Device instance ID prevents remote takeover attacks and enables secure ownership transfer',
+          implementation: 'UUID generated each factory reset cycle, stored in ESP32 secure storage',
+          validation: 'Lambda functions compare instance IDs to detect legitimate resets'
+        },
         roleStructure: {
           iotDeviceManagementRole: {
             path: `/acorn-pups/${props.environment}/lambda-functions/iot-device-mgmt-role/arn`,
-            usedBy: ['register-device', 'reset-device'],
+            usedBy: ['register-device'],
             permissions: [
               'iot:CreateKeysAndCertificate',
               'iot:DeleteCertificate',
@@ -370,7 +454,8 @@ export class CertificateManagementStack extends cdk.Stack {
               'iot:ListPrincipalThings',
               'iot:DescribeEndpoint',
               'iot:Publish'
-            ]
+            ],
+            useCases: 'Device registration with reset validation, certificate lifecycle management, ownership transfer'
           },
           iotCommunicationRole: {
             path: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
@@ -378,7 +463,8 @@ export class CertificateManagementStack extends cdk.Stack {
             permissions: [
               'iot:Publish',
               'iot:DescribeEndpoint'
-            ]
+            ],
+            useCases: 'Real-time device configuration updates via MQTT'
           },
           notificationRole: {
             path: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
@@ -386,14 +472,16 @@ export class CertificateManagementStack extends cdk.Stack {
             permissions: [
               'sns:Publish',
               'ses:SendEmail'
-            ]
+            ],
+            useCases: 'Push notifications, email invitations'
           },
           baseLambdaRole: {
             path: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
-            usedBy: ['update-device-status', 'get-user-devices', 'health-check'],
+            usedBy: ['update-device-status', 'get-user-devices', 'health-check', 'cognito-post-confirmation'],
             permissions: [
               'dynamodb operations only'
-            ]
+            ],
+            useCases: 'Basic CRUD operations, data retrieval, user creation after email verification'
           }
         },
         s3Permissions: {
@@ -410,7 +498,7 @@ export class CertificateManagementStack extends cdk.Stack {
           note: 'Points to baseLambdaRole for backward compatibility'
         }
       }),
-      'IoT permissions and role mapping for Lambda functions (created in API repo)',
+      'IoT permissions and role mapping for Lambda functions with device instance ID security',
       `/acorn-pups/${props.environment}/iot-core/lambda-role-mapping`
     );
   }

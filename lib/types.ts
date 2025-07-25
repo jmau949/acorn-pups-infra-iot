@@ -41,9 +41,12 @@ export interface IotRule {
 // API-specific types based on OpenAPI specification
 export interface DeviceRegistrationRequest {
   deviceId: string;
+  deviceInstanceId: string; // NEW: UUID generated each factory reset cycle
   deviceName: string;
   serialNumber: string;
   macAddress: string;
+  deviceState?: string; // NEW: "factory_reset" or "normal"
+  resetTimestamp?: number; // NEW: When reset occurred
 }
 
 export interface DeviceRegistrationResponse {
@@ -89,6 +92,7 @@ export interface UserInviteResponse {
 
 export interface DeviceAttributes {
   deviceId: string;
+  deviceInstanceId: string; // NEW: Reset security tracking
   serialNumber: string;
   macAddress: string;
   deviceName: string;
@@ -99,6 +103,7 @@ export interface DeviceAttributes {
   deviceType: 'ESP32_RECEIVER';
   isOnline: boolean;
   lastSeen: string;
+  lastResetAt?: string; // NEW: Last factory reset timestamp
   ownerId: string;
   registeredAt: string;
   status: 'pending' | 'active' | 'inactive';
@@ -157,38 +162,40 @@ export interface IotTopicTemplates {
   buttonPress: string;
   status: string;
   settings: string;
-  settingsAck: string;
   commands: string;
-  commandsReset: string;
-  firmware: string;
+  // REMOVED: commandsReset, firmware - simplified topic structure
 }
 
 export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
   buttonPress: 'acorn-pups/button-press/+',
   status: 'acorn-pups/status/+',
   settings: 'acorn-pups/settings/+',
-  settingsAck: 'acorn-pups/settings/+/ack',
   commands: 'acorn-pups/commands/+',
-  commandsReset: 'acorn-pups/commands/+/reset',
-  firmware: 'acorn-pups/firmware/+',
+  // REMOVED: Reset-related topics - now handled via HTTP API only
 };
 
 export const IOT_CLIENT_ID_PATTERN = 'acorn-receiver-*';
 
 export const LAMBDA_FUNCTIONS = {
+  // Button and device management
   handleButtonPress: 'handleButtonPress',
   updateDeviceStatus: 'updateDeviceStatus',
-  resetDevice: 'resetDevice',
-  factoryReset: 'factoryReset',
   registerDevice: 'registerDevice',
   updateDeviceSettings: 'updateDeviceSettings',
+  
+  // User management and invitations
+  cognitoPostConfirmation: 'cognitoPostConfirmation', // NEW: Auto-create user after email verification
   inviteUser: 'inviteUser',
   acceptInvitation: 'acceptInvitation',
   declineInvitation: 'declineInvitation',
   removeUserAccess: 'removeUserAccess',
+  
+  // Data retrieval
   getUserDevices: 'getUserDevices',
   getUserInvitations: 'getUserInvitations',
   healthCheck: 'healthCheck',
+  
+  // REMOVED: resetDevice, factoryReset - now handled via HTTP registration API only
 };
 
 export const DYNAMODB_TABLES = {
@@ -312,6 +319,7 @@ export interface DevicesTableItem {
   PK: string; // DEVICE#{device_id}
   SK: string; // METADATA | SETTINGS
   device_id: string;
+  device_instance_id: string; // NEW: UUID generated each factory reset cycle
   serial_number: string;
   mac_address: string;
   device_name: string;
@@ -324,6 +332,7 @@ export interface DevicesTableItem {
   signal_strength: number;
   created_at: string;
   updated_at: string;
+  last_reset_at?: string; // NEW: Last factory reset timestamp
   is_active: boolean;
   // Settings fields
   sound_enabled: boolean;
