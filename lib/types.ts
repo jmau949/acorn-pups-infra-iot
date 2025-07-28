@@ -160,7 +160,8 @@ export interface DeviceStatusEvent {
 
 export interface IotTopicTemplates {
   buttonPress: string;
-  status: string;
+  statusRequest: string; // NEW: Cloud requests device status
+  statusResponse: string; // NEW: Device responds with status
   settings: string;
   commands: string;
   // REMOVED: commandsReset, firmware - simplified topic structure
@@ -168,7 +169,8 @@ export interface IotTopicTemplates {
 
 export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
   buttonPress: 'acorn-pups/button-press/+',
-  status: 'acorn-pups/status/+',
+  statusRequest: 'acorn-pups/status-request/+', // NEW: Cloud requests device status
+  statusResponse: 'acorn-pups/status-response/+', // NEW: Device responds with status
   settings: 'acorn-pups/settings/+',
   commands: 'acorn-pups/commands/+',
   // REMOVED: Reset-related topics - now handled via HTTP API only

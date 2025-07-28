@@ -24,9 +24,9 @@ The infrastructure is organized into the following stacks:
 
 ### 3. **IoT Rules Stack** (`IotRulesStack`)
 - **Button Press Rule**: Routes `acorn-pups/button-press/+` to `handleButtonPress` Lambda
-- **Device Status Rule**: Routes `acorn-pups/status/+` to `updateDeviceStatus` Lambda  
-- **Device Reset Rule**: Routes `acorn-pups/commands/+/reset` to `resetDevice` Lambda
-- **Shadow Update Rule**: Routes device shadow updates for offline state management
+- **REMOVED**: Device Status Rule - status is now pulled by cloud rather than pushed by devices
+- **REMOVED**: Device Reset Rule - reset handling now via HTTP registration API only
+- **REMOVED**: Device Settings Acknowledgment Rule - simplified settings flow
 - Error actions configured for CloudWatch Logs integration
 
 ### 4. **Certificate Management Stack** (`CertificateManagementStack`)
@@ -165,7 +165,8 @@ The infrastructure supports the following MQTT topic patterns:
 | Topic Pattern | Direction | Purpose |
 |---------------|-----------|---------|
 | `acorn-pups/button-press/{deviceId}` | Device → Cloud | Button press events |
-| `acorn-pups/status/{deviceId}` | Device → Cloud | Device status updates |
+| `acorn-pups/status-request/{deviceId}` | Cloud → Device | Status request from cloud |
+| `acorn-pups/status-response/{deviceId}` | Device → Cloud | Status response from device |
 | `acorn-pups/settings/{deviceId}` | Cloud → Device | Device configuration |
 | `acorn-pups/commands/{deviceId}` | Cloud → Device | Device commands |
 
@@ -273,9 +274,16 @@ npm run watch
    ```
 
 3. **Test IoT Rules**
-   ```powershell
-   aws iot publish --topic "acorn-pups/button-press/test-device" --payload '{"test": true}'
-   ```
+```powershell
+# Test button press rule
+aws iot publish --topic "acorn-pups/button-press/test-device" --payload '{"deviceId": "test-device", "timestamp": "2024-01-01T12:00:00Z"}'
+
+# Test status request (cloud requests device status)
+aws iot publish --topic "acorn-pups/status-request/test-device" --payload '{"requestId": "req-123", "timestamp": "2024-01-01T12:00:00Z"}'
+
+# Test status response (device responds with status)
+aws iot publish --topic "acorn-pups/status-response/test-device" --payload '{"deviceId": "test-device", "statusType": "CURRENT", "timestamp": "2024-01-01T12:00:00Z", "isOnline": true, "firmwareVersion": "1.0.0"}'
+```
 
 ## Environment Configuration
 

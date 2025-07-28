@@ -13,8 +13,9 @@ AWS CDK Infrastructure for Acorn Pups IoT Core components and device management 
 
 ### ✅ Simplified Topic Structure
 - **Removed MQTT Reset Topics**: Eliminated `acorn-pups/reset/+` and related reset logic
-- **Streamlined Rules**: Reduced from 5 IoT rules to 2 core rules (button press and device status)
+- **Streamlined Rules**: Reduced from 5 IoT rules to 1 core rule (button press only)
 - **Simplified Settings Flow**: Removed settings acknowledgment rule for cleaner architecture
+- **Status Pull Model**: Devices subscribe to `acorn-pups/status-request/{deviceId}` and respond via `acorn-pups/status-response/{deviceId}`
 
 ### ✅ Updated Lambda Function Mappings
 - **Added Cognito Post-Confirmation**: Support for automatic user creation after email verification
@@ -41,9 +42,10 @@ AWS CDK Infrastructure for Acorn Pups IoT Core components and device management 
 
 ### 3. IoT Rules Stack (`iot-rules-stack.ts`) - **UPDATED**
 - **Button Press Rule**: Routes RF button events to `handleButtonPress` Lambda
-- **Device Status Rule**: Routes status updates to `updateDeviceStatus` Lambda
+- **REMOVED**: Device Status Rule - status now pulled by cloud rather than pushed by devices
 - **REMOVED**: Factory reset rule, device reset rule, settings acknowledgment rule
 - **Simplified Configuration**: Only essential rules for core functionality
+- **Status Pull Model**: Cloud requests device status via `acorn-pups/status-request/{deviceId}`
 
 ### 4. Monitoring Stack (`monitoring-stack.ts`)
 - **CloudWatch Integration**: Monitors all IoT components
@@ -67,10 +69,11 @@ export interface DeviceRegistrationRequest {
 
 ### Simplified MQTT Topic Structure
 ```typescript
-// UPDATED: Removed reset-related topics
+// UPDATED: Status pull model instead of push
 export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
   buttonPress: 'acorn-pups/button-press/+',
-  status: 'acorn-pups/status/+',
+  statusRequest: 'acorn-pups/status-request/+', // NEW: Cloud requests device status
+  statusResponse: 'acorn-pups/status-response/+', // NEW: Device responds with status
   settings: 'acorn-pups/settings/+',
   commands: 'acorn-pups/commands/+',
   // REMOVED: Reset-related topics - now handled via HTTP API only

@@ -67,7 +67,15 @@ export class MonitoringStack extends cdk.Stack {
                 namespace: 'AWS/IoT',
                 metricName: 'PublishIn.Success',
                 dimensionsMap: {
-                  Topic: 'acorn-pups/status'
+                  Topic: 'acorn-pups/status-request'
+                },
+                statistic: 'Sum'
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/IoT',
+                metricName: 'PublishIn.Success',
+                dimensionsMap: {
+                  Topic: 'acorn-pups/status-response'
                 },
                 statistic: 'Sum'
               })
@@ -86,14 +94,6 @@ export class MonitoringStack extends cdk.Stack {
                 metricName: 'RuleExecution',
                 dimensionsMap: {
                   RuleName: `AcornPupsButtonPress_${props.environment}`
-                },
-                statistic: 'Sum'
-              }),
-              new cloudwatch.Metric({
-                namespace: 'AWS/IoT',
-                metricName: 'RuleExecution',
-                dimensionsMap: {
-                  RuleName: `AcornPupsDeviceStatus_${props.environment}`
                 },
                 statistic: 'Sum'
               }),
@@ -269,15 +269,20 @@ export class MonitoringStack extends cdk.Stack {
           publishMetric: 'PublishIn.Success',
           topicDimension: 'acorn-pups/button-press'
         },
+        statusPullModel: {
+          namespace: 'AWS/IoT',
+          requestMetric: 'PublishIn.Success',
+          responseMetric: 'PublishIn.Success',
+          requestTopic: 'acorn-pups/status-request',
+          responseTopic: 'acorn-pups/status-response'
+        },
         ruleExecution: {
           namespace: 'AWS/IoT',
           executionMetric: 'RuleExecution',
           failureMetric: 'RuleExecution.Failure',
           rules: [
-            `AcornPupsButtonPress_${props.environment}`,
-            `AcornPupsDeviceStatus_${props.environment}`,
-            `AcornPupsDeviceReset_${props.environment}`,
-            `AcornPupsFactoryReset_${props.environment}`
+            `AcornPupsButtonPress_${props.environment}`
+            // REMOVED: AcornPupsDeviceStatus - status now pulled by cloud
           ]
         }
       }),
