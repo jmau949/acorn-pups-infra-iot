@@ -62,7 +62,7 @@ export class IotRulesStack extends cdk.Stack {
     this.rules.buttonPress = new iot.CfnTopicRule(this, 'ButtonPressRule', {
       ruleName: `AcornPupsButtonPress_${props.environment}`,
       topicRulePayload: {
-        sql: "SELECT *, topic(3) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/button-press/+'",
+        sql: "SELECT *, topic(3) as clientId, substring(topic(3), 16) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/button-press/+'",
         description: 'Route RF button press events from ESP32 receivers to handleButtonPress Lambda function for real-time notifications',
         actions: [
           {
@@ -176,7 +176,7 @@ export class IotRulesStack extends cdk.Stack {
       JSON.stringify({
         handleButtonPress: {
           purpose: 'Process RF button press events and send push notifications',
-          inputData: 'deviceId, buttonRfId, timestamp, batteryLevel',
+          inputData: 'deviceId, clientId, buttonRfId, timestamp, batteryLevel',
           outputAction: 'Send push notifications to all authorized users',
           databaseAccess: 'DeviceUsers table (read), Users table (read)',
           lambdaRole: 'notificationRole',
@@ -202,7 +202,7 @@ export class IotRulesStack extends cdk.Stack {
           lambdaRole: 'iotCommunicationRole',
           roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
           apiTrigger: 'PUT /devices/{deviceId}/settings',
-          mqttPublish: 'acorn-pups/settings/{deviceId}',
+          mqttPublish: 'acorn-pups/settings/{clientId}',
           permissions: ['IoT publish', 'DynamoDB read/write', 'Parameter Store read']
         }
       }),
@@ -221,7 +221,6 @@ export class IotRulesStack extends cdk.Stack {
       'MQTT topics monitored by IoT Rules and published to devices',
       `/acorn-pups/${props.environment}/iot-core/rule-topics`
     );
-
     // 📋 DOCUMENTATION: CloudWatch log prefix (NOT used at runtime)
     this.parameterHelper.createParameter(
       'LogGroupPrefixParam',
@@ -246,7 +245,7 @@ export class IotRulesStack extends cdk.Stack {
             apiFunction: 'update-device-settings',
             apiRole: 'iotCommunicationRole',
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/iot-comm-role/arn`,
-            publishToMqtt: 'acorn-pups/settings/{deviceId}',
+            publishToMqtt: 'acorn-pups/settings/{clientId}',
             flow: 'API -> Lambda (IoT Comm Role) -> MQTT -> Device applies settings',
             permissions: 'IoT publish, DynamoDB read/write'
           },
@@ -262,7 +261,7 @@ export class IotRulesStack extends cdk.Stack {
         },
         deviceToCloudFlow: {
           'RF button press': {
-            devicePublish: 'acorn-pups/button-press/{deviceId}',
+            devicePublish: 'acorn-pups/button-press/{clientId}',
             iotRule: 'buttonPress',
             lambdaFunction: 'handle-button-press',
             lambdaRole: 'notificationRole',
@@ -271,8 +270,8 @@ export class IotRulesStack extends cdk.Stack {
             permissions: 'SNS publish, DynamoDB read (user lookup)'
           },
           'Device status response': {
-            cloudRequest: 'acorn-pups/status-request/{deviceId}', // NEW: Cloud requests status
-            deviceResponse: 'acorn-pups/status-response/{deviceId}', // NEW: Device responds with status
+            cloudRequest: 'acorn-pups/status-request/{clientId}', // NEW: Cloud requests status
+            deviceResponse: 'acorn-pups/status-response/{clientId}', // NEW: Device responds with status
             lambdaFunction: 'update-device-status',
             lambdaRole: 'baseLambdaRole',
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
@@ -282,8 +281,8 @@ export class IotRulesStack extends cdk.Stack {
         },
         statusPullModel: {
           description: 'Status is now pulled by cloud rather than pushed by devices',
-          cloudInitiates: 'Cloud publishes to acorn-pups/status-request/{deviceId}',
-          deviceResponds: 'Device publishes to acorn-pups/status-response/{deviceId}',
+          cloudInitiates: 'Cloud publishes to acorn-pups/status-request/{clientId}',
+          deviceResponds: 'Device publishes to acorn-pups/status-response/{clientId}',
           benefits: 'Reduced device power consumption, controlled status polling, better network efficiency'
         }
       }),
