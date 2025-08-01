@@ -79,6 +79,13 @@ export class IotRulesStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/lambda-functions/handleDeviceLifecycle/arn`
     );
 
+    // 🔄 USED BY: VolumeControlRule to process volume control events
+    const handleVolumeControlLambdaArnParam = ssm.StringParameter.fromStringParameterName(
+      this,
+      'HandleVolumeControlLambdaArnParam',
+      `/acorn-pups/${props.environment}/lambda-functions/handleVolumeControl/arn`
+    );
+
     // ============================================================================
     // ⚡ ACTUAL IOT RULES - USED BY SYSTEM AT RUNTIME
     // ============================================================================
@@ -184,6 +191,46 @@ export class IotRulesStack extends cdk.Stack {
       ]
     });
 
+    // 🔄 USED BY: ESP32 devices publishing volume control events
+    // Real-time flow: ESP32 → MQTT → This Rule → handleVolumeControl Lambda → Update DynamoDB Settings
+    this.rules.volumeControl = new iot.CfnTopicRule(this, 'VolumeControlRule', {
+      ruleName: `AcornPupsVolumeControl_${props.environment}`,
+      topicRulePayload: {
+        sql: "SELECT *, topic(3) as clientId, substring(topic(3), 16) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/volume-control/+'",
+        description: 'Route volume control events from ESP32 receivers to handleVolumeControl Lambda function to update device settings',
+        actions: [
+          {
+            lambda: {
+              functionArn: handleVolumeControlLambdaArnParam.stringValue
+            }
+          }
+        ],
+        ruleDisabled: false
+      },
+      tags: [
+        {
+          key: 'Project',
+          value: 'acorn-pups'
+        },
+        {
+          key: 'Environment',
+          value: props.environment
+        },
+        {
+          key: 'Service',
+          value: 'IoT-Core'
+        },
+        {
+          key: 'Component',
+          value: 'Rule'
+        },
+        {
+          key: 'RuleType',
+          value: 'VolumeControl'
+        }
+      ]
+    });
+
     // REMOVED: Device Status Rule - status is now pulled by cloud rather than pushed by devices
     // REMOVED: Device Reset Rule - reset handling now via HTTP registration API only
     // REMOVED: Device Settings Acknowledgment Rule - simplified settings flow
@@ -246,6 +293,13 @@ export class IotRulesStack extends cdk.Stack {
       `AcornPupsDeviceLifecycleRuleArn-${props.environment}`
     );
 
+    this.parameterHelper.createOutputWithParameter(
+      'VolumeControlRuleArnOutput',
+      this.rules.volumeControl.attrArn,
+      'ARN of the Volume Control IoT Rule',
+      `AcornPupsVolumeControlRuleArn-${props.environment}`
+    );
+
     // Create CloudFormation outputs for log groups
     new cdk.CfnOutput(this, 'ButtonPressLogGroupArn', {
       value: buttonPressLogGroup.logGroupArn,
@@ -275,6 +329,12 @@ export class IotRulesStack extends cdk.Stack {
           lambdaFunction: 'handleButtonPress',
           processing: 'REAL_TIME'
         },
+        volumeControl: {
+          topic: 'acorn-pups/volume-control/+',
+          description: 'Process volume control events and update device settings in DynamoDB',
+          lambdaFunction: 'handleVolumeControl',
+          processing: 'PERSISTENT'
+        },
         deviceStatus: {
           topic: 'acorn-pups/status/+',
           description: 'Process device status updates and store in DeviceStatus table',
@@ -299,6 +359,16 @@ export class IotRulesStack extends cdk.Stack {
           roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
           mqttTrigger: 'acorn-pups/button-press/+',
           permissions: ['SNS publish', 'DynamoDB read', 'Parameter Store read']
+        },
+        handleVolumeControl: {
+          purpose: 'Process volume control events and update device settings in DynamoDB',
+          inputData: 'deviceId, clientId, action, newVolume, previousVolume, timestamp',
+          outputAction: 'Update device settings with new volume level',
+          databaseAccess: 'Devices table (update settings)',
+          lambdaRole: 'baseLambdaRole',
+          roleArn: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
+          mqttTrigger: 'acorn-pups/volume-control/+',
+          permissions: ['DynamoDB read/write', 'Parameter Store read']
         },
         updateDeviceStatus: {
           purpose: 'Process status requests from cloud and update device status',
@@ -331,6 +401,7 @@ export class IotRulesStack extends cdk.Stack {
       'RuleTopicsParam',
       JSON.stringify({
         buttonPress: 'acorn-pups/button-press/+',
+        volumeControl: 'acorn-pups/volume-control/+', // NEW: Volume control events from device
         statusRequest: 'acorn-pups/status-request/+', // NEW: Cloud requests device status
         deviceSettings: 'acorn-pups/settings/+' // Note: Published TO devices, not FROM devices
       }),
@@ -384,6 +455,15 @@ export class IotRulesStack extends cdk.Stack {
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
             flow: 'Device -> MQTT -> IoT Rule -> Lambda (Notification Role) -> SNS -> Mobile App',
             permissions: 'SNS publish, DynamoDB read (user lookup)'
+          },
+          'Volume control': {
+            devicePublish: 'acorn-pups/volume-control/{clientId}',
+            iotRule: 'volumeControl',
+            lambdaFunction: 'handle-volume-control',
+            lambdaRole: 'baseLambdaRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/base-role/arn`,
+            flow: 'Device -> MQTT -> IoT Rule -> Lambda (Base Role) -> DynamoDB -> Update Settings',
+            permissions: 'DynamoDB read/write (device settings update)'
           },
           'Device status response': {
             cloudRequest: 'acorn-pups/status-request/{clientId}', // NEW: Cloud requests status

@@ -158,8 +158,18 @@ export interface DeviceStatusEvent {
   firmwareVersion?: string;
 }
 
+export interface VolumeControlEvent {
+  deviceId: string;
+  clientId: string;
+  action: 'volume_up' | 'volume_down';
+  newVolume: number;
+  previousVolume: number;
+  timestamp: string;
+}
+
 export interface IotTopicTemplates {
   buttonPress: string;
+  volumeControl: string; // NEW: Volume control events from device
   statusRequest: string; // NEW: Cloud requests device status
   statusResponse: string; // NEW: Device responds with status
   settings: string;
@@ -169,6 +179,7 @@ export interface IotTopicTemplates {
 
 export const IOT_TOPIC_TEMPLATES: IotTopicTemplates = {
   buttonPress: 'acorn-pups/button-press/+',
+  volumeControl: 'acorn-pups/volume-control/+', // NEW: Volume control events from device
   statusRequest: 'acorn-pups/status-request/+', // NEW: Cloud requests device status
   statusResponse: 'acorn-pups/status-response/+', // NEW: Device responds with status
   settings: 'acorn-pups/settings/+',
@@ -181,6 +192,7 @@ export const IOT_CLIENT_ID_PATTERN = 'acorn-receiver-*';
 export const LAMBDA_FUNCTIONS = {
   // Button and device management
   handleButtonPress: 'handleButtonPress',
+  handleVolumeControl: 'handleVolumeControl',
   updateDeviceStatus: 'updateDeviceStatus',
   registerDevice: 'registerDevice',
   updateDeviceSettings: 'updateDeviceSettings',
@@ -277,6 +289,15 @@ export interface MqttDeviceSettingsMessage {
   quietHoursEnabled: boolean;
   quietHoursStart: string;
   quietHoursEnd: string;
+}
+
+export interface MqttVolumeControlMessage {
+  deviceId: string;
+  clientId: string;
+  action: 'volume_up' | 'volume_down';
+  newVolume: number;
+  previousVolume: number;
+  timestamp: string;
 }
 
 export interface MqttDeviceResetMessage {
