@@ -2,6 +2,11 @@ import { StackProps } from 'aws-cdk-lib';
 import * as iot from 'aws-cdk-lib/aws-iot';
 import * as iam from 'aws-cdk-lib/aws-iam';
 
+// EXPO NOTIFICATIONS IMPLEMENTATION
+// This file has been updated to support Expo Push Notifications with multi-device support
+// Key additions: UserEndpointsTableItem interface, registerPushToken Lambda function,
+// and userEndpoints table reference for the notification system
+
 export interface BaseIotStackProps extends StackProps {
   environment: string;
   logLevel: string;
@@ -197,6 +202,9 @@ export const LAMBDA_FUNCTIONS = {
   registerDevice: 'registerDevice',
   updateDeviceSettings: 'updateDeviceSettings',
   
+  // Push notification management
+  registerPushToken: 'registerPushToken',
+  
   // User management and invitations
   cognitoPostConfirmation: 'cognitoPostConfirmation', // NEW: Auto-create user after email verification
   inviteUser: 'inviteUser',
@@ -218,6 +226,7 @@ export const DYNAMODB_TABLES = {
   deviceUsers: 'DeviceUsers',
   invitations: 'Invitations',
   deviceStatus: 'DeviceStatus',
+  userEndpoints: 'UserEndpoints',
 };
 
 export interface DeviceCertificateConfig {
@@ -416,4 +425,17 @@ export interface DeviceStatusTableItem {
   error_count?: number;
   last_error_message?: string;
   firmware_version?: string;
+}
+
+export interface UserEndpointsTableItem {
+  PK: string; // USER#{user_id}
+  SK: string; // ENDPOINT#{device_fingerprint}
+  user_id: string;
+  expo_push_token: string;
+  device_fingerprint: string;
+  platform: 'ios' | 'android';
+  device_info: string;
+  is_active: boolean;
+  created_at: string;
+  last_used: string;
 } 

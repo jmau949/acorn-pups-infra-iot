@@ -91,12 +91,13 @@ export class IotRulesStack extends cdk.Stack {
     // ============================================================================
 
     // 🔄 USED BY: ESP32 devices publishing button press events
-    // Real-time flow: ESP32 → MQTT → This Rule → handleButtonPress Lambda → Push Notifications
+    // Real-time flow: ESP32 → MQTT → This Rule → handleButtonPress Lambda → Expo Push API → All User Devices
+    // Multi-device support: Each authorized user receives notifications on ALL registered devices (2-4 devices per user)
     this.rules.buttonPress = new iot.CfnTopicRule(this, 'ButtonPressRule', {
       ruleName: `AcornPupsButtonPress_${props.environment}`,
       topicRulePayload: {
         sql: "SELECT *, topic(3) as clientId, substring(topic(3), 16) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/button-press/+'",
-        description: 'Route RF button press events from ESP32 receivers to handleButtonPress Lambda function for real-time notifications',
+        description: 'Route RF button press events to handleButtonPress Lambda for multi-device Expo push notifications with automatic token cleanup',
         actions: [
           {
             lambda: {
@@ -196,7 +197,7 @@ export class IotRulesStack extends cdk.Stack {
     this.rules.volumeControl = new iot.CfnTopicRule(this, 'VolumeControlRule', {
       ruleName: `AcornPupsVolumeControl_${props.environment}`,
       topicRulePayload: {
-        sql: "SELECT *, topic(3) as clientId, substring(topic(3), 16) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/volume-control/+'",
+        sql: "SELECT *, topic(3) as clientId, substring(topic(3), 15) as deviceId, timestamp() as receivedAt FROM 'acorn-pups/volume-control/+'",
         description: 'Route volume control events from ESP32 receivers to handleVolumeControl Lambda function to update device settings',
         actions: [
           {
@@ -265,6 +266,22 @@ export class IotRulesStack extends cdk.Stack {
       buttonPressLogGroup.logGroupArn,
       'ARN of the Button Press IoT Rule CloudWatch log group',
       `/acorn-pups/${props.environment}/iot-core/log-groups/button-press/arn`
+    );
+
+    // Store UserEndpoints table reference for notification system
+    this.parameterHelper.createParameter(
+      'UserEndpointsTableParam',
+      'UserEndpoints',
+      'Name of the UserEndpoints DynamoDB table for push notification tokens',
+      `/acorn-pups/${props.environment}/dynamodb/tables/user-endpoints/name`
+    );
+
+    // Store Expo Push API configuration
+    this.parameterHelper.createParameter(
+      'ExpoPushApiEndpointParam',
+      'https://exp.host/--/api/v2/push/send',
+      'Expo Push API endpoint for sending notifications',
+      `/acorn-pups/${props.environment}/expo/push-api/endpoint`
     );
 
     this.parameterHelper.createParameter(
@@ -351,14 +368,15 @@ export class IotRulesStack extends cdk.Stack {
       'LambdaFunctionRequirementsParam',
       JSON.stringify({
         handleButtonPress: {
-          purpose: 'Process RF button press events and send push notifications',
+          purpose: 'Process RF button press events and send push notifications to all user devices',
           inputData: 'deviceId, clientId, buttonRfId, timestamp, batteryLevel',
-          outputAction: 'Send push notifications to all authorized users',
-          databaseAccess: 'DeviceUsers table (read), Users table (read)',
+          outputAction: 'Query UserEndpoints for all authorized users and send Expo push notifications',
+          databaseAccess: 'DeviceUsers table (read), Users table (read), UserEndpoints table (read/write)',
           lambdaRole: 'notificationRole',
           roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
           mqttTrigger: 'acorn-pups/button-press/+',
-          permissions: ['SNS publish', 'DynamoDB read', 'Parameter Store read']
+          permissions: ['HTTP requests to Expo Push API', 'DynamoDB read/write', 'Parameter Store read'],
+          notificationFlow: 'Query DeviceUsers -> Get UserEndpoints -> Send to Expo -> Process receipts -> Update token status'
         },
         handleVolumeControl: {
           purpose: 'Process volume control events and update device settings in DynamoDB',
@@ -390,6 +408,17 @@ export class IotRulesStack extends cdk.Stack {
           apiTrigger: 'PUT /devices/{deviceId}/settings',
           mqttPublish: 'acorn-pups/settings/{clientId}',
           permissions: ['IoT publish', 'DynamoDB read/write', 'Parameter Store read']
+        },
+        registerPushToken: {
+          purpose: 'Register or update Expo push tokens for multi-device notification support',
+          inputData: 'userId, expoPushToken, deviceFingerprint, platform, deviceInfo',
+          outputAction: 'Create or update UserEndpoints table record with device token information',
+          databaseAccess: 'UserEndpoints table (read/write)',
+          lambdaRole: 'notificationRole',
+          roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
+          apiTrigger: 'POST /users/{userId}/push-tokens',
+          permissions: ['DynamoDB read/write', 'Parameter Store read'],
+          tokenManagement: 'Minimal proactive strategy - check and update tokens on app launch only'
         }
       }),
       'Lambda function requirements and role mapping for IoT rules',
@@ -444,6 +473,15 @@ export class IotRulesStack extends cdk.Stack {
             iotOperations: 'Certificate generation, Thing creation, Policy attachment',
             flow: 'API -> Lambda (IoT Device Mgmt Role) -> IoT certificate/thing creation -> Database',
             permissions: 'Full IoT management, certificate generation, DynamoDB read/write, S3 backup'
+          },
+          'POST /users/{userId}/push-tokens': {
+            apiFunction: 'register-push-token',
+            apiRole: 'notificationRole',
+            roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
+            databaseOperations: 'UserEndpoints table create/update with device fingerprint logic',
+            tokenManagement: 'Minimal proactive strategy - update only when token changes',
+            flow: 'Mobile App -> API -> Lambda (Notification Role) -> UserEndpoints table update',
+            permissions: 'DynamoDB read/write (UserEndpoints table), Parameter Store read'
           }
         },
         deviceToCloudFlow: {
@@ -453,8 +491,10 @@ export class IotRulesStack extends cdk.Stack {
             lambdaFunction: 'handle-button-press',
             lambdaRole: 'notificationRole',
             roleArn: `/acorn-pups/${props.environment}/lambda-functions/notification-role/arn`,
-            flow: 'Device -> MQTT -> IoT Rule -> Lambda (Notification Role) -> SNS -> Mobile App',
-            permissions: 'SNS publish, DynamoDB read (user lookup)'
+            flow: 'Device -> MQTT -> IoT Rule -> Lambda (Notification Role) -> Expo Push API -> All User Devices',
+            databaseFlow: 'Query DeviceUsers -> Get all UserEndpoints -> Send batch notifications -> Process receipts -> Update token status',
+            permissions: 'HTTP requests to Expo Push API, DynamoDB read/write (DeviceUsers, Users, UserEndpoints)',
+            multiDeviceSupport: 'Sends notifications to all registered devices per authorized user (2-4 devices per user average)'
           },
           'Volume control': {
             devicePublish: 'acorn-pups/volume-control/{clientId}',
