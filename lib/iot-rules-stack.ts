@@ -136,7 +136,7 @@ export class IotRulesStack extends cdk.Stack {
       topicRulePayload: {
         sql: `SELECT 
           clientId, 
-          substring(clientId, 16) as deviceId,
+          substring(clientId, 15) as deviceId,
           eventType,
           timestamp() as timestamp,
           principal as certificateArn,
