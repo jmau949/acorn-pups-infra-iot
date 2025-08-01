@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as iot from 'aws-cdk-lib/aws-iot';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 import { IotRulesStackProps } from './types';
@@ -18,6 +19,24 @@ export class IotRulesStack extends cdk.Stack {
     this.parameterHelper = new ParameterStoreHelper(this, {
       environment: props.environment,
       stackName: 'rules',
+    });
+
+    // ============================================================================
+    // 📊 CLOUDWATCH LOG GROUPS - USED BY IOT RULES FOR ERROR LOGGING
+    // ============================================================================
+
+    // Create CloudWatch log group for button press rule error logging
+    const buttonPressLogGroup = new logs.LogGroup(this, 'ButtonPressRuleLogGroup', {
+      logGroupName: `/aws/iot/rules/AcornPupsButtonPress_${props.environment}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Create CloudWatch log group for device lifecycle rule error logging
+    const deviceLifecycleLogGroup = new logs.LogGroup(this, 'DeviceLifecycleRuleLogGroup', {
+      logGroupName: `/aws/iot/rules/AcornPupsDeviceLifecycle_${props.environment}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
     // ============================================================================
@@ -193,6 +212,21 @@ export class IotRulesStack extends cdk.Stack {
       );
     });
 
+    // Store CloudWatch log group information in Parameter Store
+    this.parameterHelper.createParameter(
+      'ButtonPressLogGroupArnParam',
+      buttonPressLogGroup.logGroupArn,
+      'ARN of the Button Press IoT Rule CloudWatch log group',
+      `/acorn-pups/${props.environment}/iot-core/log-groups/button-press/arn`
+    );
+
+    this.parameterHelper.createParameter(
+      'DeviceLifecycleLogGroupArnParam',
+      deviceLifecycleLogGroup.logGroupArn,
+      'ARN of the Device Lifecycle IoT Rule CloudWatch log group',
+      `/acorn-pups/${props.environment}/iot-core/log-groups/device-lifecycle/arn`
+    );
+
     // ============================================================================
     // 🔧 CLOUDFORMATION OUTPUTS - USED FOR CROSS-STACK INTEGRATION
     // ============================================================================
@@ -204,6 +238,26 @@ export class IotRulesStack extends cdk.Stack {
       'ARN of the Button Press IoT Rule',
       `AcornPupsButtonPressRuleArn-${props.environment}`
     );
+
+    this.parameterHelper.createOutputWithParameter(
+      'DeviceLifecycleRuleArnOutput',
+      this.rules.deviceLifecycle.attrArn,
+      'ARN of the Device Lifecycle IoT Rule',
+      `AcornPupsDeviceLifecycleRuleArn-${props.environment}`
+    );
+
+    // Create CloudFormation outputs for log groups
+    new cdk.CfnOutput(this, 'ButtonPressLogGroupArn', {
+      value: buttonPressLogGroup.logGroupArn,
+      description: 'ARN of the Button Press IoT Rule CloudWatch log group',
+      exportName: `acorn-pups-${props.environment}-button-press-log-group-arn`,
+    });
+
+    new cdk.CfnOutput(this, 'DeviceLifecycleLogGroupArn', {
+      value: deviceLifecycleLogGroup.logGroupArn,
+      description: 'ARN of the Device Lifecycle IoT Rule CloudWatch log group',
+      exportName: `acorn-pups-${props.environment}-device-lifecycle-log-group-arn`,
+    });
 
     // REMOVED: DeviceStatusRuleArnOutput - status rule no longer exists (pull model)
 
