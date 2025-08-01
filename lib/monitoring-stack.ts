@@ -109,7 +109,7 @@ export class MonitoringStack extends cdk.Stack {
                 namespace: 'AWS/IoT',
                 metricName: 'RuleExecution',
                 dimensionsMap: {
-                  RuleName: `AcornPupsFactoryReset_${props.environment}`
+                  RuleName: `AcornPupsDeviceLifecycle_${props.environment}`
                 },
                 statistic: 'Sum'
               })
@@ -281,7 +281,8 @@ export class MonitoringStack extends cdk.Stack {
           executionMetric: 'RuleExecution',
           failureMetric: 'RuleExecution.Failure',
           rules: [
-            `AcornPupsButtonPress_${props.environment}`
+            `AcornPupsButtonPress_${props.environment}`,
+            `AcornPupsDeviceLifecycle_${props.environment}`
             // REMOVED: AcornPupsDeviceStatus - status now pulled by cloud
           ]
         }

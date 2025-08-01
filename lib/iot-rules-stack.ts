@@ -53,6 +53,13 @@ export class IotRulesStack extends cdk.Stack {
       `/acorn-pups/${props.environment}/iot-core/rule-execution-role/arn`
     );
 
+    // 🔄 USED BY: DeviceLifecycleRule to update device online/offline status
+    const handleDeviceLifecycleLambdaArnParam = ssm.StringParameter.fromStringParameterName(
+      this,
+      'HandleDeviceLifecycleLambdaArnParam',
+      `/acorn-pups/${props.environment}/lambda-functions/handleDeviceLifecycle/arn`
+    );
+
     // ============================================================================
     // ⚡ ACTUAL IOT RULES - USED BY SYSTEM AT RUNTIME
     // ============================================================================
@@ -99,6 +106,61 @@ export class IotRulesStack extends cdk.Stack {
         {
           key: 'RuleType',
           value: 'ButtonPress'
+        }
+      ]
+    });
+
+    // 🔄 USED BY: AWS IoT Core to track device connect/disconnect events
+    // Real-time flow: Device connects/disconnects → This Rule → handleDeviceLifecycle Lambda → Update DynamoDB
+    this.rules.deviceLifecycle = new iot.CfnTopicRule(this, 'DeviceLifecycleRule', {
+      ruleName: `AcornPupsDeviceLifecycle_${props.environment}`,
+      topicRulePayload: {
+        sql: `SELECT 
+          clientId, 
+          substring(clientId, 16) as deviceId,
+          eventType,
+          timestamp() as timestamp,
+          principal as certificateArn,
+          sessionIdentifier,
+          versionNumber
+        FROM '$aws/events/presence/+/+'
+        WHERE startswith(clientId, 'acorn-receiver-')`,
+        description: 'Capture device lifecycle events (connect/disconnect) for ESP32 receivers and update device online status in DynamoDB',
+        actions: [
+          {
+            lambda: {
+              functionArn: handleDeviceLifecycleLambdaArnParam.stringValue
+            }
+          }
+        ],
+        errorAction: {
+          cloudwatchLogs: {
+            logGroupName: `/aws/iot/rules/AcornPupsDeviceLifecycle_${props.environment}`,
+            roleArn: iotRuleExecutionRoleArnParam.stringValue
+          }
+        },
+        ruleDisabled: false
+      },
+      tags: [
+        {
+          key: 'Project',
+          value: 'acorn-pups'
+        },
+        {
+          key: 'Environment',
+          value: props.environment
+        },
+        {
+          key: 'Service',
+          value: 'IoT-Core'
+        },
+        {
+          key: 'Component',
+          value: 'Rule'
+        },
+        {
+          key: 'RuleType',
+          value: 'DeviceLifecycle'
         }
       ]
     });
